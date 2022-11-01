@@ -1,0 +1,36 @@
+{
+  "name": "couchbase",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:dev": "nodemon src/index.ts",
+    "build": "rimraf ./build && tsc",
+    "start": "npm run build && node build/index.js",
+    "typecheck": "tsc --noEmit",
+    "start-no-typecheck": "ts-node --transpileOnly ./src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/cors": "^2.8.12",
+    "@types/node": "^18.11.4",
+    "nodemon": "^2.0.20",
+    "rimraf": "^3.0.2",
+    "ts-node": "^10.9.1",
+    "typescript": "^4.8.4"
+  },
+  "dependencies": {
+    "@fastify/cors": "^8.1.0",
+    "@hasura/dc-api-types": "^0.12.0",
+    "@types/express": "^4.17.14",
+    "cors": "^2.8.5",
+    "couchbase": "^3.2.4",
+    "express": "^4.18.2",
+    "fastify": "^4.9.2",
+    "fastify-plugin": "^4.3.0",
+    "ottoman": "^2.2.1"
+  }
+}

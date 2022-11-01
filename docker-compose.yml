@@ -1,0 +1,78 @@
+version: '3.9'
+
+services:
+  agent:
+    container_name: couchbase-agent
+    build: .
+    depends_on:
+      - db
+    environment:
+      - name=value
+    ports:
+      - 8100:8100
+  postgres:
+    image: "postgres:13"
+    restart: always
+    volumes:
+    - db_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgrespassword
+
+  engine:
+    depends_on:
+      - postgres
+      - agent
+    image: "hasura/graphql-engine:v2.2.0"
+    # image: "hasura/graphql-engine:${HASURA_VERSION}.ubuntu.amd64" # Intel specific image
+    # image: "hasura/graphql-engine:${HASURA_VERSION}.ubuntu.arm64" # ARM specific image
+    restart: always
+    ports:
+      - 8180:8080
+    environment:
+      HASURA_GRAPHQL_CONSOLE_ASSETS_DIR: /srv/console-assets
+      HASURA_GRAPHQL_METADATA_DATABASE_URL: "postgres://postgres:postgrespassword@postgres:5432/postgres"
+      PG_DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/postgres
+      HASURA_GRAPHQL_ENABLE_CONSOLE: "true"
+      HASURA_GRAPHQL_DEV_MODE: "true"
+      HASURA_GRAPHQL_ENABLED_LOG_TYPES: "startup, http-log, webhook-log, websocket-log, query-log"
+  ### socat can provide a proxied local native hge for testing
+  # engine:
+  #   image: alpine/socat
+  #   depends_on:
+  #     - postgres
+  #     - reference-agent
+  #   ports:
+  #     - 8080:8080
+  #   command: tcp-listen:8080,fork,reuseaddr tcp-connect:host.docker.internal:8888
+
+  replace-metadata:
+    depends_on:
+      - engine
+    image: "curlimages/curl:7.83.1"
+    volumes:
+      - ./metadata:/hasura-metadata
+    command:
+      - 'http://engine:8180/v1/metadata'
+      - '--fail'
+      - '-X'
+      - 'POST'
+      - '-H'
+      - 'Accept: */*'
+      - '-H'
+      - 'Content-Type: application/json'
+      - '--data-binary'
+      - '@/hasura-metadata/metadata-api.json'
+    restart: on-failure    
+  db:
+    image: arungupta/couchbase
+    deploy:
+      replicas: 1
+    ports:
+      - 8091:8091
+      - 8092:8092
+      - 8093:8093
+      - 8094:8094
+      - 11210:11210
+
+volumes:
+  db_data:

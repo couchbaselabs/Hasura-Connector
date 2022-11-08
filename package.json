@@ -27,6 +27,7 @@
     "@hasura/dc-api-types": "^0.12.0",
     "cors": "^2.8.5",
     "couchbase": "^4.2.0",
+    "dotenv": "^16.0.3",
     "fastify": "^4.9.2",
     "fastify-plugin": "^4.3.0"
   }

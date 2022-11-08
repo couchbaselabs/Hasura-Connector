@@ -1,18 +1,18 @@
 import { SchemaResponse, TableInfo } from "@hasura/dc-api-types";
-import { connect, model, start, Schema, Ottoman, Cluster } from "ottoman";
+import { Cluster } from "couchbase";
 import { Config } from "./config";
 
-const DocumentInfoSchema = new Schema({
+/*const DocumentInfoSchema = new Schema({
   fields: [String],
   name: String,
   description: String,
   keys: [String]
-});
+});*/
 
 
 const formatTableInfo = (config: Config) => (info: any): TableInfo => {
  
-  const tableName = config.explicit_main_schema ? ["main", info.name] : [info.name];
+  const tableName =  [info.name];
   return {
     name: tableName,
     primary_key: info.keys,
@@ -23,7 +23,7 @@ const formatTableInfo = (config: Config) => (info: any): TableInfo => {
 
 
 export async function getSchema(config: Config, cluster: Cluster ): Promise<SchemaResponse> {
-  const db = cluster.bucket(config.db);
+  const db = cluster.bucket(config.bucket).scope(config.scope);
   const collection = db.collection("metadata");
   
  

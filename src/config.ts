@@ -2,10 +2,9 @@ import { FastifyRequest } from "fastify"
 import { ConfigSchemaResponse } from "@hasura/dc-api-types"
 
 export type Config = {
-  db: string,
-  explicit_main_schema: Boolean,
-  tables: String[] | null,
-  meta: Boolean
+  bucket: string,
+  scope: string,
+  collections: String[] | null
 }
 
 export const getConfig = (request: FastifyRequest): Config => {
@@ -21,15 +20,14 @@ export const tryGetConfig = (request: FastifyRequest): Config | null => {
   const rawConfigJson = Array.isArray(configHeader) ? configHeader[0] : configHeader ?? "{}";
   const config = JSON.parse(rawConfigJson);
 
-  if(config.db == null) {
+  if(config.bucket == null) {
     return null;
   }
 
   return {
-    db: config.db,
-    explicit_main_schema: config.explicit_main_schema ?? false,
-    tables: config.tables ?? null,
-    meta: config.include_sqlite_meta_tables ?? false
+    bucket: config.bucket,
+    scope: config.scope,
+    collections: config.collections ?? null,
   }
 }
 
@@ -37,27 +35,21 @@ export const configSchema: ConfigSchemaResponse = {
   config_schema: {
     type: "object",
     nullable: false,
-    required: ["db"],
+    required: ["bucket"],
     properties: {
-      db: {
-        description: "The Couchbase connection string to use.",
+      bucket: {
+        description: "The Couchbase bucket.",
         type: "string"
       },
-      explicit_main_schema: {
-        description: "Prefix all documents with the 'main' schema",
-        type: "boolean",
-        nullable: true,
-        default: false
+      scope: {
+        description: "Scope of collections",
+        type: "string",
+        default: "default",
       },
-      documents: {
-        description: "List of documents to make available in the schema and for querying",
+      collections: {
+        description: "List of collections to make available in the schema and for querying",
         type: "array",
-        items: { $ref: "#/other_schemas/TableName" },
-        nullable: true
-      },
-      include_sqlite_meta_tables: {
-        description: "By default index tables, etc are not included, set this to true to include them.",
-        type: "boolean",
+        items: { $ref: "#/other_schemas/Collections" },
         nullable: true
       },
       DEBUG: {
@@ -69,7 +61,7 @@ export const configSchema: ConfigSchemaResponse = {
     }
   },
   other_schemas: {
-    TableName: {
+    Collections: {
       nullable: false,
       type: "string"
     }

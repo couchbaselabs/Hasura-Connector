@@ -25,12 +25,9 @@
   "dependencies": {
     "@fastify/cors": "^8.1.0",
     "@hasura/dc-api-types": "^0.12.0",
-    "@types/express": "^4.17.14",
     "cors": "^2.8.5",
-    "couchbase": "^3.2.4",
-    "express": "^4.18.2",
+    "couchbase": "^4.2.0",
     "fastify": "^4.9.2",
-    "fastify-plugin": "^4.3.0",
-    "ottoman": "^2.2.1"
+    "fastify-plugin": "^4.3.0"
   }
 }

@@ -135,7 +135,8 @@ server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/quer
     server.log.info({ headers: request.headers, query: request.body, }, "query.request");
     //const end = queryHistogram.startTimer()
     const config = getConfig(request);
-    const result: QueryResponse | ErrorResponse = await queryData(cb.cluster, request.body);
+    server.log.info(request.body);
+    const result: QueryResponse | ErrorResponse = await queryData(cb.cluster, request.body, config, server.log);
     //end();
     if ("message" in result) {
         response.statusCode = 500;
@@ -222,7 +223,7 @@ process.on('SIGINT', () => {
 
 const start = async () => {
   try {
-    const cluster = await Cluster.connect("couchbase://localhost:8091/hasura", {
+    const cluster = await Cluster.connect("couchbase://127.0.0.1", {
       username: "Administrator",
       password: "password"
     });

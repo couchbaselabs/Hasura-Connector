@@ -1,5 +1,6 @@
 import { Aggregate, BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, ExistsExpression, Expression, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, Relationship, RelationshipField, TableName, TableRelationships, UnaryComparisonOperator } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
+import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, tableNameEquals, unreachable } from "./utils";
 /** Helper type for convenience. Uses the sqlstring-sqlite library, but should ideally use the function in sequalize.
  */
@@ -17,8 +18,8 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   */
  function escapeIdentifier(identifier: string): string {
    // TODO: Review this function since the current implementation is off the cuff.
-   const result = identifier.replace(/\\/g,"\\\\").replace(/"/g,'\\"');
-   return `"${result}"`;
+   const result = identifier.replace(/\\/g,"\\\\").replace(/`/g,'\\`');
+   return `\`${result}\``;
  }
  
  /**
@@ -28,7 +29,6 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   * @returns tableName
   */
  function validateTableName(tableName: TableName): TableName {
-    console.log(tableName);
    if (tableName.length <= 2 && tableName.length > 0)
      return tableName;
    else
@@ -44,13 +44,13 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    return validateTableName(tableName).map(escapeIdentifier).join(".");
  }
  
- function json_object(relationships: Array<TableRelationships>, fields: Fields, table: TableName, tableAlias: string): string {
+ function json_object(fields: Fields, table: TableName, tableAlias: string, logger: any): string {
    const result = omap(fields, (fieldName, field) => {
      switch(field.type) {
        case "column":
-         return `${escapeString(fieldName)}, ${escapeIdentifier(field.column)}`;
+         return `${field.column} AS ${fieldName}`;
        case "relationship":
-         const tableRelationships = relationships.find(tr => tableNameEquals(tr.source_table)(table));
+        /* const tableRelationships = relationships.find(tr => tableNameEquals(tr.source_table)(table));
          if (tableRelationships === undefined) {
            throw new Error(`Couldn't find table relationships for table ${table}`);
          }
@@ -58,16 +58,17 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
          if(rel === undefined) {
            throw new Error(`Couldn't find relationship ${field.relationship} for field ${fieldName} on table ${table}`);
          }
-         return `'${fieldName}', ${relationship(relationships, rel, field, tableAlias)}`;
+         return `'${fieldName}', ${relationship(relationships, rel, field, tableAlias, logger)}`;*/
+         throw new Error(`Relationship field are no support`); 
        default:
          return unreachable(field["type"]);
      }
    }).join(", ");
  
-   return tag('json_object', `JSON_OBJECT(${result})`);
+   return tag('json_object', `${result}`);
  }
  
- function where_clause(relationships: Array<TableRelationships>, expression: Expression, queryTableName: TableName, queryTableAlias: string): string {
+ function where_clause(expression: Expression, queryTableName: TableName, queryTableAlias: string): string {
    const generateWhere = (expression: Expression, currentTableName: TableName, currentTableAlias: string): string => {
      switch(expression.type) {
        case "not":
@@ -78,19 +79,20 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
          const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableName, currentTableAlias));
          return aAnd.length > 0
            ? `(${aAnd.join(" AND ")})`
-           : "(1 = 1)" // true
+           : "(1 = 1)"; // true
  
        case "or":
          const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableName, currentTableAlias));
          return aOr.length > 0
            ? `(${aOr.join(" OR ")})`
-           : "(1 = 0)" // false
+           : "(1 = 0)"; // false
  
        case "exists":
-         const joinInfo = calculateExistsJoinInfo(relationships, expression, currentTableName, currentTableAlias);
+         /*const joinInfo = calculateExistsJoinInfo(relationships, expression, currentTableName, currentTableAlias);
          const subqueryWhere = generateWhere(expression.where, joinInfo.joinTableName, joinInfo.joinTableAlias);
          const whereComparisons = [...joinInfo.joinComparisonFragments, subqueryWhere].join(" AND ");
-         return tag('exists',`EXISTS (SELECT 1 FROM ${escapeTableName(joinInfo.joinTableName)} AS ${joinInfo.joinTableAlias} WHERE ${whereComparisons})`);
+         return tag('exists',`EXISTS (SELECT 1 FROM ${escapeTableName(joinInfo.joinTableName)} AS ${joinInfo.joinTableAlias} WHERE ${whereComparisons})`);*/
+         throw new Error(`Exists expression are not supported.`);
  
        case "unary_op":
          const uop = uop_op(expression.operator);
@@ -110,7 +112,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
          return `(${bopALhs} ${bopA} (${bopARhsValues}))`;
  
        default:
-         return unreachable(expression['type']);
+        return unreachable(expression['type']);
      }
    };
  
@@ -181,9 +183,14 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  }
  
  function generateIdentifierAlias(identifier: string): string {
-   const randomSuffix = ""; //nanoid();
-   return escapeIdentifier(`${identifier}_${randomSuffix}`);
+   const randomSuffix = GetRandom(200); //nanoid();
+   return `${identifier}_${randomSuffix}`;
  }
+
+ function GetRandom(max: number){
+  return Math.floor(Math.random() * Math.floor(max))
+}
+
  
  /**
   *
@@ -219,7 +226,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   *
   * NOTE: ORDER Clauses are currently broken due to SQLite parser issue.
   */
- function aggregates_query(
+ /*function aggregates_query(
      ts: Array<TableRelationships>,
      tableName: TableName,
      joinInfo: RelationshipJoinInfo | null,
@@ -250,7 +257,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      }).join(', ');
  
      return [`'aggregates', (SELECT JSON_OBJECT(${aggregate_pairs}) FROM (SELECT * FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}))`];
- }
+ }*/
  
  type RelationshipJoinInfo = {
    sourceTableAlias: string
@@ -258,76 +265,33 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  }
  
  function array_relationship(
-     ts: Array<TableRelationships>,
+     config: Config,
+     //ts: Array<TableRelationships>,
      tableName: TableName,
-     joinInfo: RelationshipJoinInfo | null,
+     //joinInfo: RelationshipJoinInfo | null,
      fields: Fields,
-     aggregates: Aggregates,
+     //aggregates: Aggregates,
      wWhere: Expression | null,
      wLimit: number | null,
      wOffset: number | null,
      wOrder: OrderBy | null,
+     logger: any,
    ): string {
-     const tableAlias      = generateTableAlias(tableName);
-     const aggregateSelect = aggregates_query(ts, tableName, joinInfo, aggregates, wWhere, wLimit, wOffset, wOrder);
-     const fieldSelect     = isEmptyObject(fields) ? [] : [`'rows', JSON_GROUP_ARRAY(j)`];
-     const fieldFrom       = isEmptyObject(fields) ? '' : (() => {
+     const tableAlias = generateTableAlias(tableName);
+     //const aggregateSelect = aggregates_query(ts, tableName, joinInfo, aggregates, wWhere, wLimit, wOffset, wOrder);
+    // const fieldSelect     = isEmptyObject(fields) ? [] : [`'rows', JSON_GROUP_ARRAY(j)`];
+     const n1qlQuery       = isEmptyObject(fields) ? '' : (() => {
        // NOTE: The reuse of the 'j' identifier should be safe due to scoping. This is confirmed in testing.
-       const innerFromClauses = `${where(ts, wWhere, joinInfo, tableName, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+       const innerFromClauses = `${where(wWhere, tableName, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
        if(wOrder === null || wOrder.elements.length < 1) {
-         return `FROM ( SELECT ${json_object(ts, fields, tableName, tableAlias)} AS j FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses})`;
+         return `SELECT ${json_object(fields, tableName, tableAlias, logger)} FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}`;
        } else {
          const wrappedQueryTableAlias  = generateTableAlias(tableName);
-         const innerSelect = `SELECT * FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}`;
-         return `FROM (SELECT ${json_object(ts, fields, tableName, wrappedQueryTableAlias)} AS j FROM (${innerSelect}) AS ${wrappedQueryTableAlias})`;
+         return `SELECT ${json_object(fields, tableName, wrappedQueryTableAlias, logger)} FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}`;
        }
      })()
  
-     return tag('array_relationship',`(SELECT JSON_OBJECT(${[...fieldSelect, ...aggregateSelect].join(', ')}) ${fieldFrom})`);
- }
- 
- function object_relationship(
-     ts: Array<TableRelationships>,
-     targetTable: TableName,
-     joinInfo: RelationshipJoinInfo,
-     fields: Fields,
-   ): string {
-     const targetTableAlias = generateTableAlias(targetTable);
-     const innerFrom = `${escapeTableName(targetTable)} AS ${targetTableAlias}`;
-     const whereClause = where(ts, null, joinInfo, targetTable, targetTableAlias);
-     return tag('object_relationship',
-       `(SELECT JSON_OBJECT('rows', JSON_ARRAY(${json_object(ts, fields, targetTable, targetTableAlias)})) AS j FROM ${innerFrom} ${whereClause})`);
- }
- 
- function relationship(ts: Array<TableRelationships>, r: Relationship, field: RelationshipField, sourceTableAlias: string): string {
-   const relationshipJoinInfo = {
-     sourceTableAlias,
-     targetTable: r.target_table,
-     columnMapping: r.column_mapping,
-   };
- 
-   switch(r.relationship_type) {
-     case 'object':
-       return tag('relationship', object_relationship(
-         ts,
-         r.target_table,
-         relationshipJoinInfo,
-         coerceUndefinedOrNullToEmptyRecord(field.query.fields),
-       ));
- 
-     case 'array':
-       return tag('relationship', array_relationship(
-         ts,
-         r.target_table,
-         relationshipJoinInfo,
-         coerceUndefinedOrNullToEmptyRecord(field.query.fields),
-         coerceUndefinedOrNullToEmptyRecord(field.query.aggregates),
-         coerceUndefinedToNull(field.query.where),
-         coerceUndefinedToNull(field.query.limit),
-         coerceUndefinedToNull(field.query.offset),
-         coerceUndefinedToNull(field.query.order_by),
-       ));
-   }
+     return tag('array_relationship',`${n1qlQuery}`);
  }
  
  function bop_array(o: BinaryArrayComparisonOperator): string {
@@ -352,7 +316,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  function uop_op(o: UnaryComparisonOperator): string {
    let result = o;
    switch(o) {
-     case 'is_null':               result = "IS NULL"; break;
+     case 'is_null': result = "IS NULL"; break;
    }
    return tag('uop_op',result);
  }
@@ -389,19 +353,19 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   * @param joinInfo Information about a possible join from a source table to the query table that needs to be generated into the where clause
   * @returns string representing the combined where clause
   */
- function where(ts: Array<TableRelationships>, whereExpression: Expression | null, joinInfo: RelationshipJoinInfo | null, queryTableName: TableName, queryTableAlias: string): string {
-   const whereClause = whereExpression !== null ? [where_clause(ts, whereExpression, queryTableName, queryTableAlias)] : [];
-   const joinArray = joinInfo
+ function where(whereExpression: Expression | null, queryTableName: TableName, queryTableAlias: string): string {
+   const whereClause = whereExpression !== null ? [where_clause(whereExpression, queryTableName, queryTableAlias)] : [];
+   /*const joinArray = joinInfo
      ? omap(
        joinInfo.columnMapping,
        (k,v) => `${joinInfo.sourceTableAlias}.${escapeIdentifier(k)} = ${queryTableAlias}.${escapeIdentifier(v)}`
      )
-     : []
+     : []*/
  
-   const clauses = [...whereClause, ...joinArray];
-   return clauses.length < 1
+   //const clauses = [...whereClause, ...joinArray];
+   return whereClause.length < 1
      ? ""
-     : tag('where',`WHERE ${clauses.join(" AND ")}`);
+     : tag('where',`WHERE ${whereClause.join(" AND ")}`);
  }
  
  function limit(l: number | null): string {
@@ -421,27 +385,33 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  }
 /** Top-Level Query Function.
  */
- function query(request: QueryRequest): string {
+ function query(request: QueryRequest, config: Config, logger: any): string {
+    logger.info(request.query);
     const result = array_relationship(
-      request.table_relationships,
+      config,
       request.table,
-      null,
       coerceUndefinedOrNullToEmptyRecord(request.query.fields),
-      coerceUndefinedOrNullToEmptyRecord(request.query.aggregates),
       coerceUndefinedToNull(request.query.where),
       coerceUndefinedToNull(request.query.limit),
       coerceUndefinedToNull(request.query.offset),
       coerceUndefinedToNull(request.query.order_by),
+      logger
       );
-    return tag('query', `SELECT ${result} as data`);
+      logger.info(result);
+    return tag('query', `${result}`);
   }
 
 /** Format the DB response into a /query response.
  *
  * Note: There should always be one result since 0 rows still generates an empty JSON array.
  */
- function output(rows: any): QueryResponse {
-    return JSON.parse(rows[0].data);
+ function output(result: {rows: Array<any>}, defaultObject: any): any {
+    const rows: any[] = []; 
+    
+    result.rows.forEach(element => {
+      rows.push({...defaultObject, ...element});
+    });
+    return { rows: rows };
   }
 
   const DEBUGGING_TAGS = envToBool('DEBUGGING_TAGS');
@@ -455,6 +425,20 @@ function tag(t: string, s: string): string {
   } else {
     return s;
   }
+}
+
+/** Initialize all the properties requested in the query, to all documents that may be missing any fields.
+ * @param request 
+ * @returns any
+ */
+
+function defaultObject(request: QueryRequest) {
+  const _fields =  coerceUndefinedOrNullToEmptyRecord(request.query.fields);
+  let obj: Record<string, any> = {};
+  omap(_fields, (fieldName, field) => {
+    obj[fieldName] = null;
+  });
+  return obj;
 }
 
 /** Performs a query and returns results
@@ -503,9 +487,9 @@ function tag(t: string, s: string): string {
  * ```
  *
  */
-export async function queryData(cluster: Cluster, queryRequest: QueryRequest): Promise<QueryResponse | ErrorResponse> {
+export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: any): Promise<QueryResponse | ErrorResponse> {
     
-    const q = query(queryRequest);
+    const q = query(queryRequest, config, logger);
   
     const query_length_limit = envToNum('QUERY_LENGTH_LIMIT', Infinity);
     if(q.length > query_length_limit) {
@@ -519,7 +503,8 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest): P
         };
       return result;
     } else {
-      const result = await cluster.query(q);
-      return output(result);
+      const bucket = cluster.bucket(config.bucket);
+      const result = await bucket.scope(config.scope ?? 'default').query(q);
+      return output(result, defaultObject(queryRequest));
     }
   }

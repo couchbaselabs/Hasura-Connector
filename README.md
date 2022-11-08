@@ -8,7 +8,7 @@ It can use a Couchbase cluster and consume documents of a bucket as referenced b
 The Couchbase agent currently supports the following capabilities:
 
 * [x] GraphQL Schema
-* [20%] GraphQL Queries
+* [ ] 20% GraphQL Queries
 * [ ] Prometheus Metrics
 * [ ] Exposing Foreign-Key Information
 * [ ] Mutations
@@ -98,26 +98,13 @@ From the HGE repo.
 * [ ] DB Specific Health Checks
 * [x] Schema
 * [x] Capabilities
-* [20%] Query
+* [ ] 20% Query
 * [ ] Ensure everything is escaped correctly - https://sequelize.org/api/v6/class/src/sequelize.js~sequelize#instance-method-escape
 * [ ] Or... Use parameterized queries if possible - https://sequelize.org/docs/v6/core-concepts/raw-queries/#bind-parameter
 * [ ] Run test-suite from SDK
-* [ ] Remove old queries module
 * [ ] Add ENV Variable for restriction on what databases can be used
-* [ ] Update to the latest types
-* [ ] Port back to hge codebase as an official reference agent
-* [ ] Make escapeSQL global to the query module
-* [ ] Make CORS permissions configurable
-* [ ] Optional DB Allowlist
 * [ ] Fix SDK Test suite to be more flexible about descriptions
-* [ ] READONLY option
-* [ ] CREATE option
-* [ ] Don't create DB option
-* [ ] Aggregate queries
-* [ ] Verbosity settings
-* [ ] ORDER clause in aggregates breaks SQLite parser for some reason
 * [ ] Check that looped exist check doesn't cause name conflicts
-* [ ] `NOT EXISTS IS NULL` != `EXISTS IS NOT NULL`, Example:
 
 # Known Bugs
 

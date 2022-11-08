@@ -9,6 +9,7 @@ RUN npm ci
 
 COPY tsconfig.json .
 COPY src src
+COPY .env .env
 
 # This is just to ensure everything compiles ahead of time.
 # We'll actually run using ts-node to ensure we get TypesScript

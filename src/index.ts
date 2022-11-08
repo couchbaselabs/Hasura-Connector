@@ -2,12 +2,13 @@ import Fastify from 'fastify';
 import FastifyCors from '@fastify/cors';
 import { getConfig, tryGetConfig } from './config';
 import { capabilitiesResponse } from './capabilities';
-import { envToBool, envToString } from './utils';
+import { envToBool, envToNum, envToString } from './utils';
 import * as fs from 'fs'
-import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ExplainResponse, RawRequest, RawResponse, ErrorResponse } from '@hasura/dc-api-types';
+import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse } from '@hasura/dc-api-types';
 import { getSchema } from './schema';
 import { Cluster } from 'couchbase';
 import { queryData } from './query';
+import dotenv from 'dotenv';
 
 
 /*import { explain, queryData } from './query';
@@ -16,8 +17,8 @@ import metrics from 'fastify-metrics';
 import prometheus from 'prom-client';
 import * as fs from 'fs'
 import { runRawOperation } from './raw';*/
-
-const port = Number(process.env.PORT) || 5800;
+dotenv.config();
+const port = envToNum("PORT", 8100);
 
 // NOTE: Pretty printing for logs is no longer supported out of the box.
 // See: https://github.com/pinojs/pino-pretty#integration
@@ -222,10 +223,12 @@ process.on('SIGINT', () => {
 
 
 const start = async () => {
+  
   try {
-    const cluster = await Cluster.connect("couchbase://127.0.0.1", {
-      username: "Administrator",
-      password: "password"
+    const cb = envToString('CONNECTION_STRING', "couchbase://localhost");
+    const cluster = await Cluster.connect(cb, {
+      username: envToString('CB_USERNAME', "Administrator"),
+      password: envToString('CB_PASSWORD', "password")
     });
     server.decorate("cb", {cluster});
     server.addHook("onClose", ( req, done) => {

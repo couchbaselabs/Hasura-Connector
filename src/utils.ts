@@ -44,5 +44,6 @@ export function envToBool(envVarName: string): boolean {
 
 export function envToNum(envVarName: string, defaultValue: number): number {
     const val = process.env[envVarName];
+    
     return val === undefined ? defaultValue : Number(val);
 }

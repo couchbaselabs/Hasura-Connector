@@ -1,41 +1,54 @@
-import { SchemaResponse, TableInfo } from "@hasura/dc-api-types";
+import { ColumnInfo, SchemaResponse, TableInfo } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
 
-/*const DocumentInfoSchema = new Schema({
-  fields: [String],
-  name: String,
-  description: String,
-  keys: [String]
-});*/
-
-
-const formatTableInfo = (config: Config) => (info: any): TableInfo => {
- 
-  const tableName =  [info.name];
-  return {
-    name: tableName,
-    primary_key: info.keys,
-    description: info.description,
-    columns: info.columns
-  }
+const inferQuery = (bucket: string, scope: string, collection: string): string => {
+  return `INFER \`${bucket}\`.\`${scope}\`.\`${collection}\``;
 }
+export async function getSchema(config: Config, cluster: Cluster, logger: any): Promise<SchemaResponse> {
 
+  const tables: TableInfo[] = [];
+  let result = await cluster.query(inferQuery(config.bucket, config.scope, config.collection));
+  let schemaInfo = result.rows[0];
 
-export async function getSchema(config: Config, cluster: Cluster ): Promise<SchemaResponse> {
-  const db = cluster.bucket(config.bucket).scope(config.scope);
-  const collection = db.collection("metadata");
-  
- 
-    /*const db                                        = connect(config, sqlLogger);
-    const [results, metadata]                       = await db.query("SELECT * from sqlite_schema");
-    const resultsT: Array<TableInfoInternal>        = results as Array<TableInfoInternal>;
-    const filtered: Array<TableInfoInternal>        = resultsT.filter(table => includeTable(config,table));
-    */
-    //const result: Array<TableInfo> = results.map(formatTableInfo(config));
-  
-    return {
-      tables: []
-    };
+  logger.info(schemaInfo);
+  for (const k in schemaInfo) {
+    logger.info(schemaInfo[k]);
+    let properties = schemaInfo[k].properties;
+    let columns: ColumnInfo[] = [{
+      name: 'id',
+      nullable: false,
+      type: 'string',
+    }];
+
+    for (const key in properties) {
+      let type = properties[key].type;
+      let nullable = false;
+      if (properties[key].type instanceof Array) {
+        let index = properties[key].type.indexOf("null");
+        if (index != -1) {
+          nullable = true;
+          properties[key].type.splice(index, 1);
+          type = properties[key].type[0];
+          logger.info(type);
+        }
+      }
+      logger.info(key);
+      columns.push({
+        name: key,
+        nullable: nullable,
+        type: type,
+      });
+    }
+
+    let table: TableInfo = {
+      name: properties.type.samples.map((str: any) => str.charAt(0).toUpperCase() + str.slice(1)),
+      columns: columns,
+    }
+    tables.push(table)
+  }
+
+  return {
+    tables: tables
   };
-  
+};

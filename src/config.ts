@@ -3,8 +3,8 @@ import { ConfigSchemaResponse } from "@hasura/dc-api-types"
 
 export type Config = {
   bucket: string,
-  scope: string,
-  collections: String[] | null
+  scope: string | '_defualt',
+  collection: string  | '_defualt'
 }
 
 export const getConfig = (request: FastifyRequest): Config => {
@@ -26,8 +26,8 @@ export const tryGetConfig = (request: FastifyRequest): Config | null => {
 
   return {
     bucket: config.bucket,
-    scope: config.scope,
-    collections: config.collections ?? null,
+    scope: config.scope ?? '_default',
+    collection: config.collection ?? '_default',
   }
 }
 

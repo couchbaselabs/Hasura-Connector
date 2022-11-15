@@ -128,7 +128,7 @@ async function routes(fastify: any, options: any, done: any) {
   server.get<{ Reply: SchemaResponse }>("/schema", async (request, _response) => {
     server.log.info({ headers: request.headers, query: request.body, }, "schema.request");
     const config = getConfig(request);
-    return getSchema(config, cb.cluster);
+    return getSchema(config, cb.cluster, server.log);
   });
 
 

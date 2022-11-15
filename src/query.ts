@@ -8,7 +8,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  type Aggregates = Record<string, Aggregate>
  
  function escapeString(x: any): string {
-   return x; //SqlString.escape(x);
+   return `"${x}"`;
  }
  
  /**
@@ -277,17 +277,18 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      wOrder: OrderBy | null,
      logger: any,
    ): string {
-     const tableAlias = generateTableAlias(tableName);
+     const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+     const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
      //const aggregateSelect = aggregates_query(ts, tableName, joinInfo, aggregates, wWhere, wLimit, wOffset, wOrder);
     // const fieldSelect     = isEmptyObject(fields) ? [] : [`'rows', JSON_GROUP_ARRAY(j)`];
      const n1qlQuery       = isEmptyObject(fields) ? '' : (() => {
        // NOTE: The reuse of the 'j' identifier should be safe due to scoping. This is confirmed in testing.
        const innerFromClauses = `${where(wWhere, tableName, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
        if(wOrder === null || wOrder.elements.length < 1) {
-         return `SELECT ${json_object(fields, tableName, tableAlias, logger)} FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}`;
+         return `SELECT ${json_object(fields, tableName, tableAlias, logger)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
        } else {
          const wrappedQueryTableAlias  = generateTableAlias(tableName);
-         return `SELECT ${json_object(fields, tableName, wrappedQueryTableAlias, logger)} FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}`;
+         return `SELECT ${json_object(fields, tableName, wrappedQueryTableAlias, logger)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
        }
      })()
  
@@ -354,7 +355,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   * @returns string representing the combined where clause
   */
  function where(whereExpression: Expression | null, queryTableName: TableName, queryTableAlias: string): string {
-   const whereClause = whereExpression !== null ? [where_clause(whereExpression, queryTableName, queryTableAlias)] : [];
+   const whereClause = whereExpression !== null ? [ `type = "${queryTableAlias}"` , where_clause(whereExpression, queryTableName, queryTableAlias)] : [ `type = "${queryTableAlias}"`];
    /*const joinArray = joinInfo
      ? omap(
        joinInfo.columnMapping,

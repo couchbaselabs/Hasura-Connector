@@ -1,13 +1,12 @@
-import { Aggregate, BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, ExistsExpression, Expression, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, Relationship, RelationshipField, TableName, TableRelationships, UnaryComparisonOperator } from "@hasura/dc-api-types";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, UnaryComparisonOperator } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
-import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, tableNameEquals, unreachable } from "./utils";
+import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
 /** Helper type for convenience. Uses the sqlstring-sqlite library, but should ideally use the function in sequalize.
  */
  type Fields = Record<string, Field>
- type Aggregates = Record<string, Aggregate>
  
- function escapeString(x: any): string {
+ function escapeString(x: string): string {
    return `"${x}"`;
  }
  
@@ -36,62 +35,51 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  }
  
  /**
-  *
-  * @param tableName: Unescaped table name. E.g. 'Alb"um'
-  * @returns Escaped table name. E.g. '"Alb\"um"'
+  * Generate projection to select clasule of N1QL 
+  * @param fields 
+  * @returns 
   */
- function escapeTableName(tableName: TableName): string {
-   return validateTableName(tableName).map(escapeIdentifier).join(".");
- }
- 
- function json_object(fields: Fields, table: TableName, tableAlias: string, logger: any): string {
+ function select_fields(fields: Fields): string {
    const result = omap(fields, (fieldName, field) => {
      switch(field.type) {
        case "column":
          return `${field.column} AS ${fieldName}`;
        case "relationship":
-        /* const tableRelationships = relationships.find(tr => tableNameEquals(tr.source_table)(table));
-         if (tableRelationships === undefined) {
-           throw new Error(`Couldn't find table relationships for table ${table}`);
-         }
-         const rel = tableRelationships.relationships[field.relationship];
-         if(rel === undefined) {
-           throw new Error(`Couldn't find relationship ${field.relationship} for field ${fieldName} on table ${table}`);
-         }
-         return `'${fieldName}', ${relationship(relationships, rel, field, tableAlias, logger)}`;*/
          throw new Error(`Relationship field are no support`); 
        default:
          return unreachable(field["type"]);
      }
    }).join(", ");
  
-   return tag('json_object', `${result}`);
+   return tag('select_fields', `${result}`);
  }
  
- function where_clause(expression: Expression, queryTableName: TableName, queryTableAlias: string): string {
-   const generateWhere = (expression: Expression, currentTableName: TableName, currentTableAlias: string): string => {
+ /**
+  * Convert all expression to conditions of WHERE clasule of N1QL
+  * @param expression 
+  * @param queryTableAlias 
+  * @returns 
+  */
+ function where_clause(expression: Expression, queryTableAlias: string): string {
+   const generateWhere = (expression: Expression, currentTableAlias: string): string => {
      switch(expression.type) {
        case "not":
-         const aNot = generateWhere(expression.expression, currentTableName, currentTableAlias);
+         const aNot = generateWhere(expression.expression, currentTableAlias);
            return `(NOT ${aNot})`;
  
        case "and":
-         const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableName, currentTableAlias));
+         const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias));
          return aAnd.length > 0
            ? `(${aAnd.join(" AND ")})`
            : "(1 = 1)"; // true
  
        case "or":
-         const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableName, currentTableAlias));
+         const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias));
          return aOr.length > 0
            ? `(${aOr.join(" OR ")})`
            : "(1 = 0)"; // false
  
        case "exists":
-         /*const joinInfo = calculateExistsJoinInfo(relationships, expression, currentTableName, currentTableAlias);
-         const subqueryWhere = generateWhere(expression.where, joinInfo.joinTableName, joinInfo.joinTableAlias);
-         const whereComparisons = [...joinInfo.joinComparisonFragments, subqueryWhere].join(" AND ");
-         return tag('exists',`EXISTS (SELECT 1 FROM ${escapeTableName(joinInfo.joinTableName)} AS ${joinInfo.joinTableAlias} WHERE ${whereComparisons})`);*/
          throw new Error(`Exists expression are not supported.`);
  
        case "unary_op":
@@ -116,45 +104,9 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      }
    };
  
-   return generateWhere(expression, queryTableName, queryTableAlias);
+   return generateWhere(expression, queryTableAlias);
  }
- 
- type ExistsJoinInfo = {
-   joinTableName: TableName,
-   joinTableAlias: string,
-   joinComparisonFragments: string[]
- }
- 
- function calculateExistsJoinInfo(allTableRelationships: Array<TableRelationships>, exists: ExistsExpression, sourceTableName: TableName, sourceTableAlias: string): ExistsJoinInfo {
-   switch (exists.in_table.type) {
-     case "related":
-       const tableRelationships = find_table_relationship(allTableRelationships, sourceTableName);
-       const relationship = tableRelationships.relationships[exists.in_table.relationship];
-       const joinTableAlias = generateTableAlias(relationship.target_table);
- 
-       const joinComparisonFragments = omap(
-         relationship.column_mapping,
-         (sourceColumnName, targetColumnName) =>
-           `${sourceTableAlias}.${escapeIdentifier(sourceColumnName)} = ${joinTableAlias}.${escapeIdentifier(targetColumnName)}`
-         );
- 
-       return {
-         joinTableName: relationship.target_table,
-         joinTableAlias,
-         joinComparisonFragments,
-       };
- 
-     case "unrelated":
-       return {
-         joinTableName: exists.in_table.table,
-         joinTableAlias: generateTableAlias(exists.in_table.table),
-         joinComparisonFragments: []
-       };
- 
-     default:
-       return unreachable(exists.in_table["type"]);
-   }
- }
+
  
  function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string): string {
    const path = comparisonColumn.path ?? [];
@@ -178,99 +130,22 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    }
  }
  
- function generateTableAlias(tableName: TableName): string {
-   return generateIdentifierAlias(validateTableName(tableName).join("_"))
- }
- 
- function generateIdentifierAlias(identifier: string): string {
-   const randomSuffix = GetRandom(200); //nanoid();
-   return `${identifier}_${randomSuffix}`;
- }
-
- function GetRandom(max: number){
-  return Math.floor(Math.random() * Math.floor(max))
-}
-
- 
- /**
-  *
-  * @param ts Array of Table Relationships
-  * @param t Table Name
-  * @returns Relationships matching table-name
+/**
+  * Convert all part from query request expression and config to N1QL query
+  * @param config contain bucket, scope and collection
+  * @param tableName represent type of document in collection
+  * @param fields fields expression that will be projected in SELECT clasule of N1QL
+  * @param wWhere where expression that will be apply in WHERE clasule of N1QL
+  * @param wLimit limit expression that will be apply in LIMIT clasule of N1QL
+  * @param wOffset offset expression that will be apply in OFFSET clasule of N1QL
+  * @param wOrder orderBy expression that will be apply in ORDER BY clasule of N1QL
+  * @param logger instance of fastfy server logger
+  * @returns the N1QL query
   */
- function find_table_relationship(ts: Array<TableRelationships>, t: TableName): TableRelationships {
-   for(var i = 0; i < ts.length; i++) {
-     const r = ts[i];
-     if(tableNameEquals(r.source_table)(t)) {
-       return r;
-     }
-   }
-   throw new Error(`Couldn't find relationship ${ts}, ${t.join(".")} - This shouldn't happen.`);
- }
- 
- function cast_aggregate_function(f: string): string {
-   switch(f) {
-     case 'avg':
-     case 'max':
-     case 'min':
-     case 'sum':
-     case 'total':
-       return f;
-     default:
-       throw new Error(`Aggregate function ${f} is not supported by SQLite. See: https://www.sqlite.org/lang_aggfunc.html`);
-   }
- }
- 
- /**
-  * Builds an Aggregate query expression.
-  *
-  * NOTE: ORDER Clauses are currently broken due to SQLite parser issue.
-  */
- /*function aggregates_query(
-     ts: Array<TableRelationships>,
-     tableName: TableName,
-     joinInfo: RelationshipJoinInfo | null,
-     aggregates: Aggregates,
-     wWhere: Expression | null,
-     wLimit: number | null,
-     wOffset: number | null,
-     wOrder: OrderBy | null,
-   ): Array<string> {
-     if (isEmptyObject(aggregates))
-       return [];
- 
-     const tableAlias = generateTableAlias(tableName);
-     const innerFromClauses = `${where(ts, wWhere, joinInfo, tableName, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
-     const aggregate_pairs = omap(aggregates, (k,v) => {
-       switch(v.type) {
-         case 'star_count':
-           return `${escapeString(k)}, COUNT(*)`;
-         case 'column_count':
-           if(v.distinct) {
-             return `${escapeString(k)}, COUNT(DISTINCT ${escapeIdentifier(v.column)})`;
-           } else {
-             return `${escapeString(k)}, COUNT(${escapeIdentifier(v.column)})`;
-           }
-         case 'single_column':
-           return `${escapeString(k)}, ${cast_aggregate_function(v.function)}(${escapeIdentifier(v.column)})`;
-       }
-     }).join(', ');
- 
-     return [`'aggregates', (SELECT JSON_OBJECT(${aggregate_pairs}) FROM (SELECT * FROM ${escapeTableName(tableName)} AS ${tableAlias} ${innerFromClauses}))`];
- }*/
- 
- type RelationshipJoinInfo = {
-   sourceTableAlias: string
-   columnMapping: Record<string, string> // Mapping from source table column name to target table column name
- }
- 
- function array_relationship(
+ function n1ql_query(
      config: Config,
-     //ts: Array<TableRelationships>,
      tableName: TableName,
-     //joinInfo: RelationshipJoinInfo | null,
      fields: Fields,
-     //aggregates: Aggregates,
      wWhere: Expression | null,
      wLimit: number | null,
      wOffset: number | null,
@@ -279,20 +154,12 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    ): string {
      const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
      const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
-     //const aggregateSelect = aggregates_query(ts, tableName, joinInfo, aggregates, wWhere, wLimit, wOffset, wOrder);
-    // const fieldSelect     = isEmptyObject(fields) ? [] : [`'rows', JSON_GROUP_ARRAY(j)`];
-     const n1qlQuery       = isEmptyObject(fields) ? '' : (() => {
-       // NOTE: The reuse of the 'j' identifier should be safe due to scoping. This is confirmed in testing.
-       const innerFromClauses = `${where(wWhere, tableName, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
-       if(wOrder === null || wOrder.elements.length < 1) {
-         return `SELECT ${json_object(fields, tableName, tableAlias, logger)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
-       } else {
-         const wrappedQueryTableAlias  = generateTableAlias(tableName);
-         return `SELECT ${json_object(fields, tableName, wrappedQueryTableAlias, logger)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
-       }
+     const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
+        const innerFromClauses = `${where(wWhere, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+        return `SELECT ${select_fields(fields)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
      })()
- 
-     return tag('array_relationship',`${n1qlQuery}`);
+     logger.info(`Converter expression to query ${n1qlQuery}`);
+     return tag('n1ql_query',`${n1qlQuery}`);
  }
  
  function bop_array(o: BinaryArrayComparisonOperator): string {
@@ -321,7 +188,11 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    }
    return tag('uop_op',result);
  }
- 
+ /**
+  * Parse direction in OrderBy expression
+  * @param orderDirection 
+  * @returns 
+  */
  function orderDirection(orderDirection: OrderDirection): string {
    switch (orderDirection) {
      case "asc":
@@ -332,6 +203,12 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    }
  }
  
+ /**
+  * Convert OrderBy expression to N1QL clause
+  * @param orderBy
+  * @param queryTableAlias
+  * @returns string
+  */
  function order(orderBy: OrderBy | null, queryTableAlias: string): string {
    if (orderBy === null || orderBy.elements.length < 1) {
      return "";
@@ -351,24 +228,21 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  
  /**
   * @param whereExpression Nested expression used in the associated where clause
-  * @param joinInfo Information about a possible join from a source table to the query table that needs to be generated into the where clause
+  * @param queryTableAlias represent type of the document
   * @returns string representing the combined where clause
   */
- function where(whereExpression: Expression | null, queryTableName: TableName, queryTableAlias: string): string {
-   const whereClause = whereExpression !== null ? [ `type = "${queryTableAlias}"` , where_clause(whereExpression, queryTableName, queryTableAlias)] : [ `type = "${queryTableAlias}"`];
-   /*const joinArray = joinInfo
-     ? omap(
-       joinInfo.columnMapping,
-       (k,v) => `${joinInfo.sourceTableAlias}.${escapeIdentifier(k)} = ${queryTableAlias}.${escapeIdentifier(v)}`
-     )
-     : []*/
- 
-   //const clauses = [...whereClause, ...joinArray];
+ function where(whereExpression: Expression | null, queryTableAlias: string): string {
+   const whereClause = whereExpression !== null ? [ `type = "${queryTableAlias}"` , where_clause(whereExpression,  queryTableAlias)] : [ `type = "${queryTableAlias}"`];
+  
    return whereClause.length < 1
      ? ""
      : tag('where',`WHERE ${whereClause.join(" AND ")}`);
  }
- 
+ /**
+  * Convert Limit expression to N1QL clause
+  * @param l 
+  * @returns string
+  */
  function limit(l: number | null): string {
    if(l === null) {
      return "";
@@ -384,11 +258,15 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      return tag('offset', `OFFSET ${o}`);
    }
  }
-/** Top-Level Query Function.
+/** Top-Level Query Function. It parse the query request and hasura header config to generate the N1QL
+ *  @param request Hasura query request that include query, table and relations
+ *  @param config With bucket, scope and collection
+ *  @param logger Fastify logger to inclue some informations in server log.
+ *  @return string
  */
  function query(request: QueryRequest, config: Config, logger: any): string {
     logger.info(request.query);
-    const result = array_relationship(
+    const result = n1ql_query(
       config,
       request.table,
       coerceUndefinedOrNullToEmptyRecord(request.query.fields),
@@ -405,6 +283,9 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
 /** Format the DB response into a /query response.
  *
  * Note: There should always be one result since 0 rows still generates an empty JSON array.
+ * @param result from couchbase query and parse to generate null columns
+ * @param defaultObject object with struct that need project
+ * @return any
  */
  function output(result: {rows: Array<any>}, defaultObject: any): any {
     const rows: any[] = []; 
@@ -418,7 +299,10 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   const DEBUGGING_TAGS = envToBool('DEBUGGING_TAGS');
 /** Function to add SQL comments to the generated SQL to tag which procedures generated what text.
  *
- * comment('a','b') => '/*\<a>\*\/ b /*\</a>*\/'
+ * tag('a','b') => '/*\<a>\*\/ b /*\</a>*\/'
+ * @param t
+ * @param s
+ * @return string
  */
 function tag(t: string, s: string): string {
   if(DEBUGGING_TAGS) {
@@ -446,46 +330,15 @@ function defaultObject(request: QueryRequest) {
  *
  * Limitations:
  *
- * - Binary Array Operations not currently supported.
+ * - Nested documents
+ * - Related documents.
  *
- * The current algorithm is to first create a query, then execute it, returning results.
- *
- * Method for adding relationship fields:
- *
- * - JSON aggregation similar to Postgres' approach.
- *     - 4.13. The json_group_array() and json_group_object() aggregate SQL functions
- *     - https://www.sqlite.org/json1.html#jgrouparray
- *
-
-
- * Example of a test query:
- *
- * ```
- * query MyQuery {
- *   Artist(limit: 5, order_by: {ArtistId: asc}, where: {Name: {_neq: "Accept"}, _and: {Name: {_is_null: false}}}, offset: 3) {
- *     ArtistId
- *     Name
- *     Albums(where: {Title: {_is_null: false, _gt: "A", _nin: "foo"}}, limit: 2) {
- *       AlbumId
- *       Title
- *       ArtistId
- *       Tracks(limit: 1) {
- *         Name
- *         TrackId
- *       }
- *       Artist {
- *         ArtistId
- *       }
- *     }
- *   }
- *   Track(limit: 3) {
- *     Name
- *     Album {
- *       Title
- *     }
- *   }
- * }
- * ```
+ * The current algorithm is to first create a simple query from a document type in a collection of scope, then execute it, returning results.
+ * 
+ * @param cluster instance to cluster connection
+ * @param queryRequest hasura query request expression 
+ * @param config config parse from hasura header request
+ * @param logger instance of fastify logger
  *
  */
 export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: any): Promise<QueryResponse | ErrorResponse> {
@@ -494,9 +347,10 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
   
     const query_length_limit = envToNum('QUERY_LENGTH_LIMIT', Infinity);
     if(q.length > query_length_limit) {
+      logger.error(`Generated N1QL Query was too long (${q.length} > ${query_length_limit})`);
       const result: ErrorResponse =
         {
-          message: `Generated SQL Query was too long (${q.length} > ${query_length_limit})`,
+          message: `Generated N1QL Query was too long (${q.length} > ${query_length_limit})`,
           details: {
             "query.length": q.length,
             "limit": query_length_limit

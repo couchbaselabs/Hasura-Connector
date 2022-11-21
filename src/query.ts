@@ -6,8 +6,8 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  */
  type Fields = Record<string, Field>
  
- function escapeString(x: string): string {
-   return `"${x}"`;
+ function valueTemplate(value: any): string {
+   return `'${value}'`;
  }
  
  /**
@@ -60,7 +60,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   * @param queryTableAlias 
   * @returns 
   */
- function where_clause(expression: Expression, queryTableAlias: string): string {
+ function where_clause(expression: Expression, queryTableAlias: string, logger: any): string {
    const generateWhere = (expression: Expression, currentTableAlias: string): string => {
      switch(expression.type) {
        case "not":
@@ -90,20 +90,21 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
        case "binary_op":
          const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
          const bop = bop_op(expression.operator);
-         const bopRhs = generateComparisonValueFragment(expression.value, queryTableAlias, currentTableAlias);
+         const bopRhs = generateComparisonValueFragment(expression.value, queryTableAlias, currentTableAlias, logger);
          return `${bopLhs} ${bop} ${bopRhs}`;
  
        case "binary_arr_op":
          const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
          const bopA = bop_array(expression.operator);
-         const bopARhsValues = expression.values.map(v => escapeString(v)).join(", ");
+         logger.info(`TYPE: ${expression.values}`);
+         const bopARhsValues = expression.values.map(v => expression.value_type == "string" ?  valueTemplate(v) : v).join(", ");
          return `(${bopALhs} ${bopA} (${bopARhsValues}))`;
  
        default:
         return unreachable(expression['type']);
      }
    };
- 
+  
    return generateWhere(expression, queryTableAlias);
  }
 
@@ -119,12 +120,13 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
    }
  }
  
- function generateComparisonValueFragment(comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string): string {
+ function generateComparisonValueFragment(comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, logger: any): string {
    switch (comparisonValue.type) {
      case "column":
        return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias);
      case "scalar":
-       return escapeString(comparisonValue.value);
+       if (["string", "date"].includes(comparisonValue.value_type.toLowerCase())) return valueTemplate(comparisonValue.value);
+       return comparisonValue.value;
      default:
        return unreachable(comparisonValue["type"]);
    }
@@ -155,7 +157,7 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
      const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
      const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
-        const innerFromClauses = `${where(wWhere, tableAlias)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+        const innerFromClauses = `${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
         return `SELECT ${select_fields(fields)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
      })()
      logger.info(`Converter expression to query ${n1qlQuery}`);
@@ -231,9 +233,9 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
   * @param queryTableAlias represent type of the document
   * @returns string representing the combined where clause
   */
- function where(whereExpression: Expression | null, queryTableAlias: string): string {
-   const whereClause = whereExpression !== null ? [ `type = "${queryTableAlias}"` , where_clause(whereExpression,  queryTableAlias)] : [ `type = "${queryTableAlias}"`];
-  
+ function where(whereExpression: Expression | null, queryTableAlias: string, logger: any): string {
+   const whereClause = whereExpression !== null ? [ `type = "${queryTableAlias}"` , where_clause(whereExpression,  queryTableAlias, logger)] : [ `type = "${queryTableAlias}"`];
+   logger.info(whereClause); 
    return whereClause.length < 1
      ? ""
      : tag('where',`WHERE ${whereClause.join(" AND ")}`);

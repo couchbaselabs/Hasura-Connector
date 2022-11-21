@@ -1,4 +1,4 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, UnaryComparisonOperator } from "@hasura/dc-api-types";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
@@ -260,6 +260,64 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
      return tag('offset', `OFFSET ${o}`);
    }
  }
+
+ function cast_aggregate_function(f: string): string {
+  switch(f) {
+    case 'avg':
+    case 'max':
+    case 'min':
+    case 'sum':
+    case 'total':
+      return f;
+    default:
+      throw new Error(`Aggregate function ${f} is not supported by N1QL`);
+  }
+}
+ type Aggregates = Record<string, Aggregate>
+ /**
+ * Builds an Aggregate query expression.
+ */
+function aggregates_query(
+  logger: any,
+  config: Config,
+  tableName: TableName,
+  aggregates: Aggregates,
+  wWhere: Expression | null,
+  wLimit: number | null,
+  wOffset: number | null,
+  wOrder: OrderBy | null,
+): string {
+if (isEmptyObject(aggregates))
+  return "";
+
+  const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+  const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
+
+/*const orderByInfo = orderBy(ts, wOrder, tableName, tableAlias);
+const orderByJoinClauses = orderByInfo?.joinClauses.join(" ") ?? "";
+const orderByClause = orderByInfo?.orderByClause ?? "";*/
+
+const whereClause = where( wWhere, tableAlias, logger);
+
+const aggregate_pairs = Object.entries(aggregates).map(([k,v]) => {
+  switch(v.type) {
+    case 'star_count':
+      return ` COUNT(*) AS ${k}`;
+    case 'column_count':
+      if(v.distinct) {
+        return `COUNT(DISTINCT ${escapeIdentifier(v.column)}) AS ${k}`;
+      } else {
+        return `COUNT(${escapeIdentifier(v.column)}) AS ${k}`;
+      }
+    case 'single_column':
+      return `${cast_aggregate_function(v.function)}(${escapeIdentifier(v.column)}) AS ${k}`;
+  }
+}).join(', ');
+const sourceSubquery = `SELECT ${aggregate_pairs} FROM  ${from}  AS ${tableAlias} ${whereClause} ${limit(wLimit)} ${offset(wOffset)}`
+
+
+return sourceSubquery;
+}
 /** Top-Level Query Function. It parse the query request and hasura header config to generate the N1QL
  *  @param request Hasura query request that include query, table and relations
  *  @param config With bucket, scope and collection
@@ -279,7 +337,17 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
       logger
       );
       logger.info(result);
+
     return tag('query', `${result}`);
+  }
+
+
+  function agregateQuery(request: QueryRequest, config: Config, logger: any): string {
+    const aggregate = aggregates_query(logger, config, request.table, coerceUndefinedOrNullToEmptyRecord(request.query.aggregates),coerceUndefinedToNull(request.query.where), coerceUndefinedToNull(request.query.limit),
+    coerceUndefinedToNull(request.query.offset),
+    coerceUndefinedToNull(request.query.order_by));
+    logger.info(aggregate);
+    return tag('agregate_query', `${aggregate}`);
   }
 
 /** Format the DB response into a /query response.
@@ -289,13 +357,13 @@ import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, e
  * @param defaultObject object with struct that need project
  * @return any
  */
- function output(result: {rows: Array<any>}, defaultObject: any): any {
+ function output(result: {rows: Array<any>}, defaultObject: any, agregate: {rows: Array<any>} | null): any {
     const rows: any[] = []; 
     
     result.rows.forEach(element => {
       rows.push({...defaultObject, ...element});
     });
-    return { rows: rows };
+    return { rows: rows, aggregates: agregate?.rows[0] };
   }
 
   const DEBUGGING_TAGS = envToBool('DEBUGGING_TAGS');
@@ -344,8 +412,9 @@ function defaultObject(request: QueryRequest) {
  *
  */
 export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: any): Promise<QueryResponse | ErrorResponse> {
-    
+    logger.info(queryRequest);
     const q = query(queryRequest, config, logger);
+    const q_aggregate = agregateQuery(queryRequest, config, logger);
   
     const query_length_limit = envToNum('QUERY_LENGTH_LIMIT', Infinity);
     if(q.length > query_length_limit) {
@@ -362,6 +431,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
     } else {
       const bucket = cluster.bucket(config.bucket);
       const result = await bucket.scope(config.scope ?? 'default').query(q);
-      return output(result, defaultObject(queryRequest));
+      const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
+      return output(result, defaultObject(queryRequest), agregate_result);
     }
   }

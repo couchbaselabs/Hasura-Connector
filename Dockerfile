@@ -1,4 +1,4 @@
-FROM node:19-alpine
+FROM node:16-alpine
 RUN apk add g++ make py3-pip\
     && rm -rf /var/cache/apk/*
 WORKDIR /app
@@ -9,7 +9,6 @@ RUN npm ci
 
 COPY tsconfig.json .
 COPY src src
-COPY .env .env
 
 # This is just to ensure everything compiles ahead of time.
 # We'll actually run using ts-node to ensure we get TypesScript

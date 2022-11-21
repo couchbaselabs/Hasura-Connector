@@ -226,6 +226,7 @@ const start = async () => {
   
   try {
     const cb = envToString('CONNECTION_STRING', "couchbase://localhost");
+    server.log.info(`Database ${cb}`);
     const cluster = await Cluster.connect(cb, {
       username: envToString('CB_USERNAME', "Administrator"),
       password: envToString('CB_PASSWORD', "password")

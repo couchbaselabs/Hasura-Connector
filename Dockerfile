@@ -4,7 +4,7 @@ RUN apk add g++ make py3-pip\
 WORKDIR /app
 COPY package.json .
 COPY package-lock.json .
-
+RUN npm cache clear --force
 RUN npm ci
 
 COPY tsconfig.json .

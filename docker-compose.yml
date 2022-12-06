@@ -35,8 +35,8 @@ services:
     ports:
     - "8080:8080"
     depends_on:
-    - "postgres"
-    - "agent"
+    - postgres
+    - agent
     restart: always
     environment:
       ## postgres database to store Hasura metadata

@@ -4,11 +4,13 @@ import { getConfig, tryGetConfig } from './config';
 import { capabilitiesResponse } from './capabilities';
 import { envToBool, envToNum, envToString } from './utils';
 import * as fs from 'fs'
-import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse } from '@hasura/dc-api-types';
+import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse, ExplainResponse, RawRequest, RawResponse } from '@hasura/dc-api-types';
 import { getSchema } from './schema';
 import { Cluster } from 'couchbase';
-import { queryData } from './query';
+import { explain, queryData, runRawOperation } from './query';
 import dotenv from 'dotenv';
+import metrics from 'fastify-metrics';
+import prometheus from 'prom-client';
 
 
 /*import { explain, queryData } from './query';
@@ -57,13 +59,13 @@ const METRICS_ENABLED = envToBool('METRICS');
 
 if(METRICS_ENABLED) {
   // See: https://www.npmjs.com/package/fastify-metrics
-  /*server.register(metrics, {
+  server.register(metrics, {
     endpoint: '/metrics',
     routeMetrics: {
       enabled: true,
       registeredRoutesOnly: false,
     }
-  });*/
+  });
 }
 
 if (envToBool('PERMISSIVE_CORS')) {
@@ -82,16 +84,16 @@ if (envToBool('PERMISSIVE_CORS')) {
     return;
   }
 
-  /*const requestCounter = new prometheus.Counter({
+  const requestCounter = new prometheus.Counter({
     name: 'http_request_count',
     help: 'Number of requests',
     labelNames: ['route'],
-  });*/
+  });
 
   // Register a global request counting metric
   // See: https://www.fastify.io/docs/latest/Reference/Hooks/#onrequest
   server.addHook('onRequest', async (request, reply) => {
-    //requestCounter.inc({route: request.routerPath});
+    requestCounter.inc({route: request.routerPath});
   })
 })();
 
@@ -100,12 +102,12 @@ if (envToBool('PERMISSIVE_CORS')) {
 // http_request_duration_seconds_bucket but is less general
 // but the query endpoint will offer more statistics specific
 // to the database interactions in future.
-/*const queryHistogram = new prometheus.Histogram({
+const queryHistogram = new prometheus.Histogram({
   name: 'query_durations',
   help: 'Histogram of the duration of query response times.',
   buckets: prometheus.exponentialBuckets(0.0001, 10, 8),
   labelNames: ['route'] as const,
-});*/
+});
 
 /**
  * A plugin that provide encapsulated routes
@@ -134,29 +136,30 @@ async function routes(fastify: any, options: any, done: any) {
 
 server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/query", async (request, response) => {
     server.log.info({ headers: request.headers, query: request.body, }, "query.request");
-    //const end = queryHistogram.startTimer()
+    const end = queryHistogram.startTimer()
     const config = getConfig(request);
     server.log.info(request.body);
     const result: QueryResponse | ErrorResponse = await queryData(cb.cluster, request.body, config, server.log);
-    //end();
+    end();
     if ("message" in result) {
         response.statusCode = 500;
     }
     return result;
 });
 
-// TODO: Use derived types for body and reply
-/*server.post<{ Body: RawRequest, Reply: RawResponse }>("/raw", async (request, _response) => {
+server.post<{ Body: RawRequest, Reply: RawResponse }>("/raw", async (request, _response) => {
   server.log.info({ headers: request.headers, query: request.body, }, "schema.raw");
   const config = getConfig(request);
-  return runRawOperation(config, sqlLogger, request.body);
+  server.log.info("RAW QUERY");
+  server.log.info(request.body);
+  return runRawOperation(cb.cluster, config, server.log, request.body);
 });
 
 server.post<{ Body: QueryRequest, Reply: ExplainResponse}>("/explain", async (request, _response) => {
   server.log.info({ headers: request.headers, query: request.body, }, "query.request");
   const config = getConfig(request);
-  return explain(config, sqlLogger, request.body);
-});*/
+  return explain(cb.cluster, config, server.log, request.body);
+});
 
 server.get("/health", async (request, response) => {
   const config = tryGetConfig(request);
@@ -167,14 +170,14 @@ server.get("/health", async (request, response) => {
     response.statusCode = 204;
   } else {
     server.log.info({ headers: request.headers, query: request.body, }, "health.db.request");
-    /*const db = connect(config);
-    const [r, m] = await db.query('select 1 where 1 = 1');*/
-    // if (r && JSON.stringify(r) == '[{"1":1}]') {
+    const n1ql_query  = `select 1 as r from \`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\` where 1 = 1 limit 1`;
+    const result = await cb.cluster.query(n1ql_query);
+   if (result.rows && JSON.stringify(result.rows) == '[{"r":1}]') {
     response.statusCode = 204;
-    /*} else {
+    } else {
         response.statusCode = 500;
-        return { "error": "problem executing query", "query_result": r };
-    }*/
+        return { "error": "problem executing query", "query_result": result };
+    }
   }
 });
 

@@ -1,4 +1,4 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator } from "@hasura/dc-api-types";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
@@ -293,10 +293,6 @@ if (isEmptyObject(aggregates))
   const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
 
-/*const orderByInfo = orderBy(ts, wOrder, tableName, tableAlias);
-const orderByJoinClauses = orderByInfo?.joinClauses.join(" ") ?? "";
-const orderByClause = orderByInfo?.orderByClause ?? "";*/
-
 const whereClause = where( wWhere, tableAlias, logger);
 
 const aggregate_pairs = Object.entries(aggregates).map(([k,v]) => {
@@ -435,3 +431,41 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
       return output(result, defaultObject(queryRequest), agregate_result);
     }
   }
+
+  
+/**
+ *
+ * Constructs a query as per the `POST /query` endpoint but prefixes it with `EXPLAIN` before execution.
+ *
+ * Formatted result lines are included under the `lines` field. An initial blank line is included to work around a display bug.
+ *
+ * NOTE: The Explain related items are included here since they are a small extension of Queries, and another module may be overkill.
+ *
+ * @param cluster
+ * @param config
+ * @param logger
+ * @param queryRequest
+ * @returns
+ */
+export async function explain(cluster: Cluster, config: Config, logger: any, queryRequest: QueryRequest): Promise<ExplainResponse> {
+
+  const q = query(queryRequest, config, logger);
+  const {rows} = await cluster.query(`EXPLAIN ${q}`);
+
+  logger.info(`EXPLAINS ${rows}`);
+
+  return {
+    query: q,
+    lines: ["", JSON.stringify(rows, undefined, 4)]
+  }
+}
+
+
+export async function runRawOperation(cluster: Cluster, config: Config, logger: any,  query: RawRequest): Promise<RawResponse> {
+  
+  const {rows} = await cluster.query(query.query);
+
+  return {
+    rows
+  };
+};

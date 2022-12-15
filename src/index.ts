@@ -95,6 +95,7 @@ if (envToBool('PERMISSIVE_CORS')) {
 // http_request_duration_seconds_bucket but is less general
 // but the query endpoint will offer more statistics specific
 // to the database interactions in the future.
+// By default: It creates an array that grows exponentially with create 8 buckets, starting at 0.0001 and with a factor of 10
 const queryHistogram = new prometheus.Histogram({
   name: 'query_durations',
   help: 'Histogram of the duration of query response times.',

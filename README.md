@@ -8,8 +8,8 @@ It can use a Couchbase cluster and consume documents of a bucket as referenced b
 The Couchbase agent currently supports the following capabilities:
 
 * [x] GraphQL Schema
-* [ ] 20% GraphQL Queries
-* [ ] Prometheus Metrics
+* [x] GraphQL Queries
+* [x] Prometheus Metrics
 * [ ] Exposing Foreign-Key Information
 * [ ] Mutations
 * [ ] Subscriptions
@@ -65,14 +65,14 @@ The agent is configured as per the configuration schema. The valid configuration
 
 | Property | Type | Default |
 | -------- | ---- | ------- |
-| `db` | `string` | |
-| `documents` | `string[]` | `null` |
+| `bucket` | `string` | |
+| `healtCheckStrategy` | `string` | `null` |
+| `scope` | `string` | `null` |
+| `collection` | `string` | `null` |
 
-The only required property is `db` which specifies a local sqlite database to use.
+The only required property is `bucket` which specifies a couchbase bucket in the cluster to use.
 
 The schema is exposed via introspection, but you can limit which tables are referenced by
-
-* Explicitly enumerating them via the `documents` property
 
 ## Dataset
 
@@ -85,20 +85,20 @@ The dataset used for testing the reference agent is sourced from:
 Run:
 
 ```sh
-cabal run dc-api:test:tests-dc-api -- test --agent-base-url http://localhost:8100 --agent-config '{"db": "travel-sample"}'
+cabal run dc-api:test:tests-dc-api -- test --agent-base-url http://localhost:8100 --agent-config '{"bucket": "travel-sample", "healtCheckStrategy": "ping"}'
 ```
 
 From the HGE repo.
 
 ## TODO
 
-* [ ] Prometheus metrics hosted at `/metrics`
+* [x] Prometheus metrics hosted at `/metrics`
 * [ ] Pull reference types from a package rather than checked-in files
-* [ ] Health Check
-* [ ] DB Specific Health Checks
+* [x] Health Check
+* [x] DB Specific Health Checks
 * [x] Schema
 * [x] Capabilities
-* [ ] 20% Query
+* [x] Query
 * [ ] Ensure everything is escaped correctly - https://sequelize.org/api/v6/class/src/sequelize.js~sequelize#instance-method-escape
 * [ ] Or... Use parameterized queries if possible - https://sequelize.org/docs/v6/core-concepts/raw-queries/#bind-parameter
 * [ ] Run test-suite from SDK

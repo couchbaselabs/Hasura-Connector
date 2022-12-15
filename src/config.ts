@@ -4,7 +4,8 @@ import { ConfigSchemaResponse } from "@hasura/dc-api-types"
 export type Config = {
   bucket: string,
   scope: string | '_default',
-  collection: string  | '_default'
+  collection: string  | '_default',
+  healtCheckStrategy: 'ping' | 'diagnostic' | null,
 }
 
 export const getConfig = (request: FastifyRequest): Config => {
@@ -28,6 +29,7 @@ export const tryGetConfig = (request: FastifyRequest): Config | null => {
     bucket: config.bucket,
     scope: config.scope ?? '_default',
     collection: config.collection ?? '_default',
+    healtCheckStrategy: config.healtCheckStrategy,
   }
 }
 
@@ -44,26 +46,21 @@ export const configSchema: ConfigSchemaResponse = {
       scope: {
         description: "Scope of collections",
         type: "string",
-        default: "default",
+        default: "_default",
       },
       collections: {
         description: "List of collections to make available in the schema and for querying",
-        type: "array",
-        items: { $ref: "#/other_schemas/Collections" },
+        type: "string",
+        default: "_default",
         nullable: true
       },
-      DEBUG: {
-        description: "For debugging.",
-        type: "object",
-        additionalProperties: true,
-        nullable: true
-      }
+      healtCheckStrategy: {
+        description: "Define strategic to healt check of couchbase",
+        nullable: true,
+        default: null,
+        type: "string",
+      },
     }
   },
-  other_schemas: {
-    Collections: {
-      nullable: false,
-      type: "string"
-    }
-  }
+  other_schemas: {}
 }

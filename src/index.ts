@@ -6,19 +6,12 @@ import { envToBool, envToNum, envToString } from './utils';
 import * as fs from 'fs'
 import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse, ExplainResponse, RawRequest, RawResponse } from '@hasura/dc-api-types';
 import { getSchema } from './schema';
-import { Cluster } from 'couchbase';
+import { Cluster, ServiceType } from 'couchbase';
 import { explain, queryData, runRawOperation } from './query';
 import dotenv from 'dotenv';
 import metrics from 'fastify-metrics';
 import prometheus from 'prom-client';
 
-
-/*import { explain, queryData } from './query';
-import { connect } from './db';
-import metrics from 'fastify-metrics';
-import prometheus from 'prom-client';
-import * as fs from 'fs'
-import { runRawOperation } from './raw';*/
 dotenv.config();
 const port = envToNum("PORT", 8100);
 
@@ -57,7 +50,7 @@ server.setErrorHandler(function (error, _request, reply) {
 
 const METRICS_ENABLED = envToBool('METRICS');
 
-if(METRICS_ENABLED) {
+if (METRICS_ENABLED) {
   // See: https://www.npmjs.com/package/fastify-metrics
   server.register(metrics, {
     endpoint: '/metrics',
@@ -80,7 +73,7 @@ if (envToBool('PERMISSIVE_CORS')) {
 // Register request-hook metrics.
 // This is done in a closure so that the metrics are scoped here.
 (() => {
-  if(! METRICS_ENABLED) {
+  if (!METRICS_ENABLED) {
     return;
   }
 
@@ -93,7 +86,7 @@ if (envToBool('PERMISSIVE_CORS')) {
   // Register a global request counting metric
   // See: https://www.fastify.io/docs/latest/Reference/Hooks/#onrequest
   server.addHook('onRequest', async (request, reply) => {
-    requestCounter.inc({route: request.routerPath});
+    requestCounter.inc({ route: request.routerPath });
   })
 })();
 
@@ -101,7 +94,7 @@ if (envToBool('PERMISSIVE_CORS')) {
 // Not especially useful at present as this mirrors
 // http_request_duration_seconds_bucket but is less general
 // but the query endpoint will offer more statistics specific
-// to the database interactions in future.
+// to the database interactions in the future.
 const queryHistogram = new prometheus.Histogram({
   name: 'query_durations',
   help: 'Histogram of the duration of query response times.',
@@ -134,7 +127,7 @@ async function routes(fastify: any, options: any, done: any) {
   });
 
 
-server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/query", async (request, response) => {
+  server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/query", async (request, response) => {
     server.log.info({ headers: request.headers, query: request.body, }, "query.request");
     const end = queryHistogram.startTimer()
     const config = getConfig(request);
@@ -142,55 +135,77 @@ server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/quer
     const result: QueryResponse | ErrorResponse = await queryData(cb.cluster, request.body, config, server.log);
     end();
     if ("message" in result) {
-        response.statusCode = 500;
+      response.statusCode = 500;
     }
     return result;
-});
+  });
 
-server.post<{ Body: RawRequest, Reply: RawResponse }>("/raw", async (request, _response) => {
-  server.log.info({ headers: request.headers, query: request.body, }, "schema.raw");
-  const config = getConfig(request);
-  server.log.info("RAW QUERY");
-  server.log.info(request.body);
-  return runRawOperation(cb.cluster, config, server.log, request.body);
-});
+  server.post<{ Body: RawRequest, Reply: RawResponse | ErrorResponse }>("/raw", async (request, _response) => {
+    server.log.info({ headers: request.headers, query: request.body, }, "schema.raw");
+    const config = getConfig(request);
+    server.log.info("RAW QUERY");
+    server.log.info(request.body);
+    return runRawOperation(cb.cluster, config, server.log, request.body);
+  });
 
-server.post<{ Body: QueryRequest, Reply: ExplainResponse}>("/explain", async (request, _response) => {
-  server.log.info({ headers: request.headers, query: request.body, }, "query.request");
-  const config = getConfig(request);
-  return explain(cb.cluster, config, server.log, request.body);
-});
+  server.post<{ Body: QueryRequest, Reply: ExplainResponse | ErrorResponse }>("/explain", async (request, _response) => {
+    server.log.info({ headers: request.headers, query: request.body, }, "query.request");
+    const config = getConfig(request);
+    return explain(cb.cluster, config, server.log, request.body);
+  });
 
-server.get("/health", async (request, response) => {
-  const config = tryGetConfig(request);
-  response.type('application/json');
-
-  if (config === null) {
-    server.log.info({ headers: request.headers, query: request.body, }, "health.request");
-    response.statusCode = 204;
-  } else {
-    server.log.info({ headers: request.headers, query: request.body, }, "health.db.request");
-    const n1ql_query  = `select 1 as r from \`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\` where 1 = 1 limit 1`;
-    const result = await cb.cluster.query(n1ql_query);
-   if (result.rows && JSON.stringify(result.rows) == '[{"r":1}]') {
-    response.statusCode = 204;
-    } else {
-        response.statusCode = 500;
-        return { "error": "problem executing query", "query_result": result };
-    }
-  }
-});
-
-server.get("/swagger.json", async (request, response) => {
-  fs.readFile('src/types/agent.openapi.json', (err, fileBuffer) => {
+  server.get("/health", async (request, response) => {
+    const config = tryGetConfig(request);
     response.type('application/json');
-    response.send(err || fileBuffer)
-  })
-})
+    server.log.info({ config }, "health.request");
+    if (config === null) {
+      server.log.info({ headers: request.headers, query: request.body, }, "health.request");
+      response.statusCode = 204;
+    } else if (config.healtCheckStrategy !== null) {
+      
+      server.log.info({ headers: request.headers, query: request.body, }, "health.db.request");
+      const bucket = await cb.cluster.bucket(config.bucket);
+      let services = [ServiceType.KeyValue, ServiceType.Query];
+      
+      if (config.healtCheckStrategy === 'ping') {
+        try {
+          const result = await bucket.ping(services);
+          response.statusCode = 204;
+          server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
+        }
+        catch (e) {
+          response.statusCode = 500;
+          return { "error": "problem executing query", "query_result": e };
+        }
+      }
+      else if (config.healtCheckStrategy === 'diagnostic') {
+        try {
+          const result = await bucket.diagnostics(services);
+          response.statusCode = 204;
+          server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
+        }
+        catch (e) {
+          response.statusCode = 500;
+          return { "error": "problem executing query", "query_result": e };
+        }
+      }
+      else {
+        response.statusCode = 500;
+        return  { "error": "unknow healtcheck strategy", "value": config.healtCheckStrategy  };
+      }
+    }
+  });
 
-server.get("/", async (request, response) => {
-  response.type('text/html');
-  return `<!DOCTYPE html>
+  server.get("/swagger.json", async (request, response) => {
+    fs.readFile('src/types/agent.openapi.json', (err, fileBuffer) => {
+      response.type('application/json');
+      response.send(err || fileBuffer)
+    })
+  })
+
+  server.get("/", async (request, response) => {
+    response.type('text/html');
+    return `<!DOCTYPE html>
     <html>
       <head>
         <title>Hasura Data Connectors Couchbase Agent</title>
@@ -212,9 +227,9 @@ server.get("/", async (request, response) => {
       </body>
     </html>
   `;
-});
+  });
 
-done();
+  done();
 };
 
 server.register(routes);
@@ -226,7 +241,7 @@ process.on('SIGINT', () => {
 
 
 const start = async () => {
-  
+
   try {
     const cb = envToString('CONNECTION_STRING', "couchbase://localhost");
     server.log.info(`Database ${cb}`);
@@ -234,8 +249,8 @@ const start = async () => {
       username: envToString('CB_USERNAME', "Administrator"),
       password: envToString('CB_PASSWORD', "password")
     });
-    server.decorate("cb", {cluster});
-    server.addHook("onClose", ( req, done) => {
+    server.decorate("cb", { cluster });
+    server.addHook("onClose", (req, done) => {
       cluster.close().finally(done);
     });
     server.log.info(`STARTING on port ${port}`);

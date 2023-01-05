@@ -1,6 +1,4 @@
-FROM node:16-alpine
-RUN apk add g++ make py3-pip\
-    && rm -rf /var/cache/apk/*
+FROM node:16
 WORKDIR /app
 COPY package.json .
 COPY package-lock.json .

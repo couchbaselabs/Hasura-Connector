@@ -43,7 +43,8 @@ function select_fields(fields: Fields): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
-        return `${field.column} AS ${fieldName}`;
+        const { column } = field;
+        return `${ column == 'id' ? "meta().id" : column } AS ${fieldName}`;
       case "relationship":
         throw new Error(`Relationship field are no support`);
       default:

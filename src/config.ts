@@ -48,12 +48,13 @@ export const configSchema: ConfigSchemaResponse = {
         type: "string",
         default: "_default",
       },
-      collections: {
-        description: "List of collections to make available in the schema and for querying",
+      collection: {
+        description: "Collection to make available in the schema and for querying",
         type: "string",
         default: "_default",
         nullable: true
       },
+      documents:{},
       healtCheckStrategy: {
         description: "Define strategic to healt check of couchbase",
         nullable: true,

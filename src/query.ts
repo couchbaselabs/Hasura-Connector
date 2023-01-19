@@ -43,8 +43,7 @@ function select_fields(fields: Fields): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
-        const { column } = field;
-        return `${ column == 'id' ? "meta().id" : column } AS ${fieldName}`;
+        return `${ field.column == 'id' ? "meta().id" : field.column } AS ${fieldName}`;
       case "relationship":
         throw new Error(`Relationship field are no support`);
       default:
@@ -62,20 +61,20 @@ function select_fields(fields: Fields): string {
  * @returns 
  */
 function where_clause(expression: Expression, queryTableAlias: string, logger: any): string {
-  const generateWhere = (expression: Expression, currentTableAlias: string): string => {
+  const generateWhere = (expression: Expression, currentTableAlias: string, prefix: string): string => {
     switch (expression.type) {
       case "not":
-        const aNot = generateWhere(expression.expression, currentTableAlias);
+        const aNot = generateWhere(expression.expression, currentTableAlias, `${prefix}not_`);
         return `(NOT ${aNot})`;
 
       case "and":
-        const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias));
+        const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}and_`));
         return aAnd.length > 0
           ? `(${aAnd.join(" AND ")})`
           : "(1 = 1)"; // true
 
       case "or":
-        const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias));
+        const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}or_`));
         return aOr.length > 0
           ? `(${aOr.join(" OR ")})`
           : "(1 = 0)"; // false
@@ -91,22 +90,22 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
       case "binary_op":
         const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
         const bop = bop_op(expression.operator);
-        const bopRhs = generateComparisonValueFragment(expression.value, queryTableAlias, currentTableAlias, logger);
+        const bopRhs = generateComparisonValueFragment(expression.column.name, expression.value, queryTableAlias, currentTableAlias, prefix, logger);
         return `${bopLhs} ${bop} ${bopRhs}`;
 
       case "binary_arr_op":
         const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
         const bopA = bop_array(expression.operator);
-        logger.info(`TYPE: ${expression.values}`);
-        const bopARhsValues = expression.values.map(v => expression.value_type == "string" ? valueTemplate(v) : v).join(", ");
-        return `(${bopALhs} ${bopA} (${bopARhsValues}))`;
+        /*logger.info(`TYPE: ${expression.values}`);
+        const bopARhsValues = expression.values.map(v => expression.value_type == "string" ? valueTemplate(v) : v).join(", ");*/
+        return `(${bopALhs} ${bopA} $${prefix}${expression.column.name})`;
 
       default:
         return unreachable(expression['type']);
     }
   };
 
-  return generateWhere(expression, queryTableAlias);
+  return generateWhere(expression, queryTableAlias, 'p');
 }
 
 
@@ -121,16 +120,70 @@ function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, qu
   }
 }
 
-function generateComparisonValueFragment(comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, logger: any): string {
+function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: any): string {
   switch (comparisonValue.type) {
     case "column":
       return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias);
     case "scalar":
-      if (["string", "date"].includes(comparisonValue.value_type.toLowerCase())) return valueTemplate(comparisonValue.value);
-      return comparisonValue.value;
+      /*if (["string", "date"].includes(comparisonValue.value_type.toLowerCase())) return valueTemplate(comparisonValue.value);
+      return comparisonValue.value;*/
+      return `$${prefix}${columnName}`;
     default:
       return unreachable(comparisonValue["type"]);
   }
+}
+
+type Parameter = {[key:string]:any};
+
+function toParameters(expression: Expression): Parameter {
+
+  const generateParameters = (expression: Expression, prefix: string): Parameter => {
+    switch (expression.type) {
+      case "not":
+        return generateParameters(expression.expression, `${prefix}not_`);
+
+      case "and":
+        const params = expression.expressions.flatMap(x => generateParameters(x, `${prefix}and_`));
+        let andParameter : Parameter  = {};
+
+        params.forEach((value) => {
+          andParameter = {...andParameter, ...value}
+        });
+
+        return andParameter;
+      case "or":
+         const orParams  = expression.expressions.flatMap(x => generateParameters(x,`${prefix}or_`));
+         let orParameter : Parameter  = {};
+
+         orParams.forEach((value) => {
+          orParameter = {...andParameter, ...value}
+         });
+ 
+         return orParameter;
+      case "exists":
+      case "unary_op":
+        return {};
+
+      case "binary_op":
+        const { column, value} = expression;
+        const parameter : Parameter = {};
+        if (value.type == 'scalar') {
+          parameter [`${prefix}${column.name}`] = value.value;
+        }
+        return parameter;
+
+      case "binary_arr_op":
+        const { values } = expression;
+        const binaryParam : Parameter = {};
+        binaryParam [`${prefix}${expression.column.name}`] = values;
+        return binaryParam;
+
+      default:
+        return unreachable(expression['type']);
+    }
+  };
+
+  return generateParameters(expression, 'p');
 }
 
 /**
@@ -427,8 +480,9 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
     return result;
   } else {
     try {
+      const parameters = queryRequest.query.where ? toParameters(queryRequest.query.where): {};
       const bucket = cluster.bucket(config.bucket);
-      const result = await bucket.scope(config.scope ?? 'default').query(q);
+      const result = await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters});
       const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
       return output(result, defaultObject(queryRequest), agregate_result);
     }

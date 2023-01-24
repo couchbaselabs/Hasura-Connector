@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import FastifyCors from '@fastify/cors';
 import { getConfig, tryGetConfig } from './config';
 import { capabilitiesResponse } from './capabilities';
-import { envToBool, envToNum, envToString } from './utils';
+import { connectToCluster, envToBool, envToNum, envToString } from './utils';
 import * as fs from 'fs'
 import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse, ExplainResponse, RawRequest, RawResponse } from '@hasura/dc-api-types';
 import { getSchema } from './schema';
@@ -109,8 +109,6 @@ const queryHistogram = new prometheus.Histogram({
  * @param {Object} options plugin options, refer to https://www.fastify.io/docs/latest/Reference/Plugins/#plugin-options
  */
 async function routes(fastify: any, options: any, done: any) {
-  const cb = fastify.cb;
-
   // NOTE:
   //
   // While an ErrorResponse is available it is not currently used as there are no errors anticipated.
@@ -124,7 +122,9 @@ async function routes(fastify: any, options: any, done: any) {
   server.get<{ Reply: SchemaResponse }>("/schema", async (request, _response) => {
     server.log.info({ headers: request.headers, query: request.body, }, "schema.request");
     const config = getConfig(request);
-    return getSchema(config, cb.cluster, server.log);
+    console.log(config);
+    const cluster = await connectToCluster(config, server.log);
+    return getSchema(config, cluster, server.log);
   });
 
 
@@ -133,7 +133,8 @@ async function routes(fastify: any, options: any, done: any) {
     const end = queryHistogram.startTimer()
     const config = getConfig(request);
     server.log.info(request.body);
-    const result: QueryResponse | ErrorResponse = await queryData(cb.cluster, request.body, config, server.log);
+    const cluster = await connectToCluster(config, server.log);
+    const result: QueryResponse | ErrorResponse = await queryData(cluster, request.body, config, server.log);
     end();
     if ("message" in result) {
       response.statusCode = 500;
@@ -146,13 +147,15 @@ async function routes(fastify: any, options: any, done: any) {
     const config = getConfig(request);
     server.log.info("RAW QUERY");
     server.log.info(request.body);
-    return runRawOperation(cb.cluster, config, server.log, request.body);
+    const cluster = await connectToCluster(config, server.log);
+    return runRawOperation(cluster, config, server.log, request.body);
   });
 
   server.post<{ Body: QueryRequest, Reply: ExplainResponse | ErrorResponse }>("/explain", async (request, _response) => {
     server.log.info({ headers: request.headers, query: request.body, }, "query.request");
     const config = getConfig(request);
-    return explain(cb.cluster, config, server.log, request.body);
+    const cluster = await connectToCluster(config, server.log);
+    return explain(cluster, config, server.log, request.body);
   });
 
   server.get("/health", async (request, response) => {
@@ -165,12 +168,12 @@ async function routes(fastify: any, options: any, done: any) {
     } else if (config.healtCheckStrategy !== null) {
       
       server.log.info({ headers: request.headers, query: request.body, }, "health.db.request");
-      const bucket = await cb.cluster.bucket(config.bucket);
+      const cluster = await connectToCluster(config, server.log);
       let services = [ServiceType.KeyValue, ServiceType.Query];
       
       if (config.healtCheckStrategy === 'ping') {
         try {
-          const result = await bucket.ping(services);
+          const result = await cluster.ping({serviceTypes: services});
           response.statusCode = 204;
           server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
         }
@@ -181,7 +184,7 @@ async function routes(fastify: any, options: any, done: any) {
       }
       else if (config.healtCheckStrategy === 'diagnostic') {
         try {
-          const result = await bucket.diagnostics(services);
+          const result = await cluster.diagnostics();
           response.statusCode = 204;
           server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
         }
@@ -242,18 +245,7 @@ process.on('SIGINT', () => {
 
 
 const start = async () => {
-
   try {
-    const cb = envToString('CONNECTION_STRING', "couchbase://localhost");
-    server.log.info(`Database ${cb}`);
-    const cluster = await Cluster.connect(cb, {
-      username: envToString('CB_USERNAME', "Administrator"),
-      password: envToString('CB_PASSWORD', "password")
-    });
-    server.decorate("cb", { cluster });
-    server.addHook("onClose", (req, done) => {
-      cluster.close().finally(done);
-    });
     server.log.info(`STARTING on port ${port}`);
     await server.listen({ port: port, host: "0.0.0.0" });
   }

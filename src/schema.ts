@@ -1,19 +1,19 @@
-import { ColumnInfo, SchemaResponse, TableInfo } from "@hasura/dc-api-types";
+import { ColumnInfo, Constraint, SchemaResponse, TableInfo } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
 
 const inferQuery = (bucket: string, scope: string, collection: string): string => {
   return `INFER \`${bucket}\`.\`${scope}\`.\`${collection}\``;
 }
+
 export async function getSchema(config: Config, cluster: Cluster, logger: any): Promise<SchemaResponse> {
 
   const tables: TableInfo[] = [];
   let result = await cluster.query(inferQuery(config.bucket, config.scope, config.collection));
+  //logger.info(result);
   let schemaInfo = result.rows[0];
 
-  logger.info(schemaInfo);
   for (const k in schemaInfo) {
-    logger.info(schemaInfo[k]);
     let properties = schemaInfo[k].properties;
     let columns: ColumnInfo[] = [{
       name: 'id',
@@ -33,7 +33,7 @@ export async function getSchema(config: Config, cluster: Cluster, logger: any): 
           logger.info(type);
         }
       }
-      logger.info(key);
+
       columns.push({
         name: key,
         nullable: nullable,
@@ -41,9 +41,30 @@ export async function getSchema(config: Config, cluster: Cluster, logger: any): 
       });
     }
 
+    const tname = properties.type.samples.map((str: any) => str.charAt(0).toUpperCase() + str.slice(1));
+    let tinfo = config.documents?.filter((doc) => doc.name.toLocaleLowerCase() == tname.join(".").toLocaleLowerCase())[0];
+
+    let foreign_keys :  [string, Constraint][] = [];
+    if (tinfo?.relations != undefined) {
+      foreign_keys = tinfo!.relations!.flatMap((value) => {
+        return [[
+          `${tname} -> ${value.target_document}`,
+        {
+            column_mapping: value.field_mapping,
+            foreign_table: [value.target_document],
+        }]];
+      });
+    }
+
+    let foreignKeys :  Record<string, Constraint> = {};
+
+    foreign_keys.forEach(value => foreignKeys[value[0]] = value[1]);
+    
     let table: TableInfo = {
-      name: properties.type.samples.map((str: any) => str.charAt(0).toUpperCase() + str.slice(1)),
+      name: tname,
       columns: columns,
+      primary_key: ["id"],
+      foreign_keys: foreignKeys,
     }
     tables.push(table)
   }

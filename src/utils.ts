@@ -1,4 +1,6 @@
 import { TableName } from "@hasura/dc-api-types";
+import { Cluster } from "couchbase";
+import { Config } from "./config";
 
 export const coerceUndefinedToNull = <T>(v: T | undefined): T | null => v === undefined ? null : v;
 
@@ -46,4 +48,14 @@ export function envToNum(envVarName: string, defaultValue: number): number {
     const val = process.env[envVarName];
     
     return val === undefined ? defaultValue : Number(val);
+}
+
+export async function connectToCluster(config: Config, logger: any): Promise<Cluster> {
+    const { db: cb, username, password } = config;
+    logger.info(`Database ${cb} ${username} ${password}`);
+    const cluster = await Cluster.connect(cb, {
+        username: username,
+        password: password
+    });
+    return cluster;
 }

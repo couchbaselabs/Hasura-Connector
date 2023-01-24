@@ -1,10 +1,24 @@
 import { FastifyRequest } from "fastify"
 import { ConfigSchemaResponse } from "@hasura/dc-api-types"
 
+export type DocumentReference = {
+  field_mapping: Record<string, string>,
+  target_document: string
+}
+
+export type Document = {
+  name: string,
+  relations: DocumentReference[] | null
+}
+
 export type Config = {
   bucket: string,
+  db: string,
+  username: string,
+  password: string,
   scope: string | '_default',
   collection: string  | '_default',
+  documents:  Document[] | null, 
   healtCheckStrategy: 'ping' | 'diagnostic' | null,
 }
 
@@ -25,11 +39,27 @@ export const tryGetConfig = (request: FastifyRequest): Config | null => {
     return null;
   }
 
+  if(config.db == null) {
+    return null;
+  }
+
+  if(config.username == null) {
+    return null;
+  }
+
+  if(config.password == null) {
+    return null;
+  }
+
   return {
     bucket: config.bucket,
+    db: config.db,
+    username: config.username,
+    password: config.password,
     scope: config.scope ?? '_default',
     collection: config.collection ?? '_default',
     healtCheckStrategy: config.healtCheckStrategy,
+    documents: config.documents,
   }
 }
 
@@ -37,8 +67,20 @@ export const configSchema: ConfigSchemaResponse = {
   config_schema: {
     type: "object",
     nullable: false,
-    required: ["bucket"],
+    required: ["db", "username", "password", "bucket"],
     properties: {
+      db: {
+        description: "The connection string to access to DB",
+        type: "string",
+      },
+      username: {
+        description: "User will be use to connect to couchbase",
+        type: "string",
+      },
+      password: {
+        description: "Password will be use to connect to couchbase",
+        type: "string",
+      },
       bucket: {
         description: "The Couchbase bucket.",
         type: "string"
@@ -54,7 +96,11 @@ export const configSchema: ConfigSchemaResponse = {
         default: "_default",
         nullable: true
       },
-      documents:{},
+      documents: {
+        description: "A list of documents and the relations allowed",
+        type: "object",
+        nullable: true
+      },
       healtCheckStrategy: {
         description: "Define strategic to healt check of couchbase",
         nullable: true,

@@ -1,14 +1,10 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse } from "@hasura/dc-api-types";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship } from "@hasura/dc-api-types";
 import { Cluster, IndexFailureError } from "couchbase";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
 /** Helper type for convenience. Uses the sqlstring-sqlite library, but should ideally use the function in sequalize.
  */
 type Fields = Record<string, Field>
-
-function valueTemplate(value: any): string {
-  return `'${value}'`;
-}
 
 /**
  *
@@ -39,19 +35,51 @@ function validateTableName(tableName: TableName): TableName {
  * @param fields 
  * @returns 
  */
-function select_fields(fields: Fields): string {
+function select_fields(fields: Fields, tableName: TableName, ts: TableRelationships[]): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
         return `${ field.column == 'id' ? "meta().id" : field.column } AS ${fieldName}`;
       case "relationship":
-        throw new Error(`Relationship field are no support`);
+        let relations = ts.find((rel) =>rel.source_table.join(".") == tableName.join("."));
+        let relation = relations?.relationships[field.relationship];
+        if (!relation) {
+          throw new Error(`Relationship field are no support`);
+        }
+        return `(SELECT * FROM [l${fieldName}] as \`rows\`)[0] as ${fieldName}`
       default:
         return unreachable(field["type"]);
     }
   }).join(", ");
 
   return tag('select_fields', `${result}`);
+}
+
+/**
+ * Generate LET to with relation data of N1QL 
+ * @param fields 
+ * @returns 
+ */
+function let_relationss(fields: Fields, tableName: TableName, ts: TableRelationships[], config: Config, logger: any): string {
+  const result = omap(fields, (fieldName, field) => {
+    switch (field.type) {
+      case "column":
+        return '';
+      case "relationship":
+        let relations = ts.find((rel) =>rel.source_table.join(".") == tableName.join("."));
+        let relation = relations?.relationships[field.relationship];
+        if (!relation) {
+          throw new Error(`Relationship field are no support`);
+        }
+        const {query} = field;
+        return `LET l${fieldName} = (${n1ql_query(config, ts, relation!.target_table, coerceUndefinedOrNullToEmptyRecord(query.fields), coerceUndefinedToNull(query.where), relation.relationship_type == 'object' ? 1 : coerceUndefinedToNull(query.limit), 0, coerceUndefinedToNull(query.order_by), logger)})`;
+       // throw new Error(`Relationship field are no support`);
+      default:
+        return unreachable(field["type"]);
+    }
+  }).join(" ");
+
+  return tag('let', `${result}`);
 }
 
 /**
@@ -66,40 +94,31 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
       case "not":
         const aNot = generateWhere(expression.expression, currentTableAlias, `${prefix}not_`);
         return `(NOT ${aNot})`;
-
       case "and":
         const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}and_`));
         return aAnd.length > 0
           ? `(${aAnd.join(" AND ")})`
           : "(1 = 1)"; // true
-
       case "or":
         const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}or_`));
         return aOr.length > 0
           ? `(${aOr.join(" OR ")})`
           : "(1 = 0)"; // false
-
       case "exists":
         throw new Error(`Exists expression are not supported.`);
-
       case "unary_op":
         const uop = uop_op(expression.operator);
         const columnFragment = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
         return `(${columnFragment} ${uop})`;
-
       case "binary_op":
         const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
         const bop = bop_op(expression.operator);
         const bopRhs = generateComparisonValueFragment(expression.column.name, expression.value, queryTableAlias, currentTableAlias, prefix, logger);
         return `${bopLhs} ${bop} ${bopRhs}`;
-
       case "binary_arr_op":
         const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
         const bopA = bop_array(expression.operator);
-        /*logger.info(`TYPE: ${expression.values}`);
-        const bopARhsValues = expression.values.map(v => expression.value_type == "string" ? valueTemplate(v) : v).join(", ");*/
         return `(${bopALhs} ${bopA} $${prefix}${expression.column.name})`;
-
       default:
         return unreachable(expression['type']);
     }
@@ -125,8 +144,6 @@ function generateComparisonValueFragment(columnName: string, comparisonValue: Co
     case "column":
       return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias);
     case "scalar":
-      /*if (["string", "date"].includes(comparisonValue.value_type.toLowerCase())) return valueTemplate(comparisonValue.value);
-      return comparisonValue.value;*/
       return `$${prefix}${columnName}`;
     default:
       return unreachable(comparisonValue["type"]);
@@ -200,6 +217,7 @@ function toParameters(expression: Expression): Parameter {
   */
 function n1ql_query(
   config: Config,
+  ts: TableRelationships[],
   tableName: TableName,
   fields: Fields,
   wWhere: Expression | null,
@@ -211,8 +229,8 @@ function n1ql_query(
   const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
   const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
-    const innerFromClauses = `${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
-    return `SELECT ${select_fields(fields)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
+    const innerFromClauses = `${let_relationss(fields, tableName, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+    return `SELECT ${select_fields(fields, tableName, ts)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
   })()
   logger.info(`Converter expression to query ${n1qlQuery}`);
   return tag('n1ql_query', `${n1qlQuery}`);
@@ -378,6 +396,7 @@ function query(request: QueryRequest, config: Config, logger: any): string {
   logger.info(request.query);
   const result = n1ql_query(
     config,
+    request.table_relationships,
     request.table,
     coerceUndefinedOrNullToEmptyRecord(request.query.fields),
     coerceUndefinedToNull(request.query.where),
@@ -393,9 +412,13 @@ function query(request: QueryRequest, config: Config, logger: any): string {
 
 
 function agregateQuery(request: QueryRequest, config: Config, logger: any): string {
-  const aggregate = aggregates_query(logger, config, request.table, coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), coerceUndefinedToNull(request.query.where), coerceUndefinedToNull(request.query.limit),
+  const aggregate = aggregates_query(logger, config, request.table, 
+    coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), 
+    coerceUndefinedToNull(request.query.where), 
+    coerceUndefinedToNull(request.query.limit),
     coerceUndefinedToNull(request.query.offset),
-    coerceUndefinedToNull(request.query.order_by));
+    coerceUndefinedToNull(request.query.order_by),
+    );
   logger.info(aggregate);
   return tag('agregate_query', `${aggregate}`);
 }
@@ -407,11 +430,11 @@ function agregateQuery(request: QueryRequest, config: Config, logger: any): stri
  * @param defaultObject object with struct that need project
  * @return any
  */
-function output(result: { rows: Array<any> }, defaultObject: any, agregate: { rows: Array<any> } | null): any {
+function output(result: { rows: Array<any> }, defaultObject: any, agregate: { rows: Array<any> } | null, logger: any): any {
   const rows: any[] = [];
 
   result.rows.forEach(element => {
-    rows.push({ ...defaultObject, ...element });
+    rows.push({ ... defaultObject, ... element });
   });
   return { rows: rows, aggregates: agregate?.rows[0] };
 }
@@ -484,7 +507,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
       const bucket = cluster.bucket(config.bucket);
       const result = await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters});
       const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
-      return output(result, defaultObject(queryRequest), agregate_result);
+      return output(result, defaultObject(queryRequest), agregate_result, logger);
     }
     catch (ex) {
       if (ex instanceof IndexFailureError) {

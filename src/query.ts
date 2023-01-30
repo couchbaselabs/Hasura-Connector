@@ -1,4 +1,4 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship } from "@hasura/dc-api-types";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship, AndExpression, ApplyBinaryComparisonOperator } from "@hasura/dc-api-types";
 import { Cluster, IndexFailureError } from "couchbase";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
@@ -60,7 +60,7 @@ function select_fields(fields: Fields, tableName: TableName, ts: TableRelationsh
  * @param fields 
  * @returns 
  */
-function let_relationss(fields: Fields, tableName: TableName, ts: TableRelationships[], config: Config, logger: any): string {
+function let_relationss(fields: Fields, tableName: TableName, alias: string, ts: TableRelationships[], config: Config, logger: any): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
@@ -71,8 +71,40 @@ function let_relationss(fields: Fields, tableName: TableName, ts: TableRelations
         if (!relation) {
           throw new Error(`Relationship field are no support`);
         }
-        const {query} = field;
-        return `LET l${fieldName} = (${n1ql_query(config, ts, relation!.target_table, coerceUndefinedOrNullToEmptyRecord(query.fields), coerceUndefinedToNull(query.where), relation.relationship_type == 'object' ? 1 : coerceUndefinedToNull(query.limit), 0, coerceUndefinedToNull(query.order_by), logger)})`;
+        const { query } = field;
+        const { column_mapping : mapping } = relation;
+        let onPart : AndExpression = {
+          expressions : [],
+          type: "and",
+        };
+        if (coerceUndefinedToNull(query.where)) {
+          onPart.expressions.push(coerceUndefinedToNull(query.where)!);
+        }
+        for(const key in mapping) {
+          let clasule: ApplyBinaryComparisonOperator = {
+            column: { name: mapping[key], column_type: 'string',},
+            operator: 'equal',
+            type: 'binary_op',
+            value: {
+              type: 'column',
+              column: {
+                name: key,
+                column_type: 'string',
+                path: [alias]
+              }
+            }
+          } 
+          onPart.expressions.push(clasule)
+        }
+        const n1qlQuery = n1ql_query(config, ts, relation!.target_table, 
+            coerceUndefinedOrNullToEmptyRecord(query.fields), 
+            onPart, 
+            relation.relationship_type == 'object' ? 1 : coerceUndefinedToNull(query.limit), 0, 
+            coerceUndefinedToNull(query.order_by), 
+            logger
+        );
+
+        return `LET l${fieldName} = (${n1qlQuery} )`;
        // throw new Error(`Relationship field are no support`);
       default:
         return unreachable(field["type"]);
@@ -108,15 +140,15 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
         throw new Error(`Exists expression are not supported.`);
       case "unary_op":
         const uop = uop_op(expression.operator);
-        const columnFragment = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const columnFragment = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         return `(${columnFragment} ${uop})`;
       case "binary_op":
-        const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         const bop = bop_op(expression.operator);
         const bopRhs = generateComparisonValueFragment(expression.column.name, expression.value, queryTableAlias, currentTableAlias, prefix, logger);
         return `${bopLhs} ${bop} ${bopRhs}`;
       case "binary_arr_op":
-        const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         const bopA = bop_array(expression.operator);
         return `(${bopALhs} ${bopA} $${prefix}${expression.column.name})`;
       default:
@@ -128,21 +160,28 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
 }
 
 
-function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string): string {
+function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string, _logger: any): string {
   const path = comparisonColumn.path ?? [];
+  _logger.info(`INFOOOO  ${comparisonColumn.name} ${path.length}`);
+  
   if (path.length === 0) {
-    return `${currentTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
+
+    return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${currentTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else if (path.length === 1 && path[0] === "$") {
-    return `${queryTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
+    return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${queryTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else {
-    throw new Error(`Unsupported path on ComparisonColumn: ${[...path, comparisonColumn.name].join(".")}`);
+    
+    if (comparisonColumn.name == 'id') {
+      return `meta(${[...path].join(".")}).id`;
+    }
+    return [...path, comparisonColumn.name].join(".");
   }
 }
 
 function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: any): string {
   switch (comparisonValue.type) {
     case "column":
-      return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias);
+      return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias, _logger);
     case "scalar":
       return `$${prefix}${columnName}`;
     default:
@@ -229,7 +268,7 @@ function n1ql_query(
   const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
   const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
-    const innerFromClauses = `${let_relationss(fields, tableName, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+    const innerFromClauses = `${let_relationss(fields, tableName, tableAlias, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
     return `SELECT ${select_fields(fields, tableName, ts)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
   })()
   logger.info(`Converter expression to query ${n1qlQuery}`);

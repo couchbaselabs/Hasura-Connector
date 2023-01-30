@@ -1,5 +1,6 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship, AndExpression, ApplyBinaryComparisonOperator } from "@hasura/dc-api-types";
-import { Cluster, IndexFailureError } from "couchbase";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship, AndExpression, ApplyBinaryComparisonOperator, OrderByElement } from "@hasura/dc-api-types";
+import { Cluster, IndexFailureError, QueryResult } from "couchbase";
+import { FastifyBaseLogger } from "fastify";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
 /** Helper type for convenience. Uses the sqlstring-sqlite library, but should ideally use the function in sequalize.
@@ -60,7 +61,7 @@ function select_fields(fields: Fields, tableName: TableName, ts: TableRelationsh
  * @param fields 
  * @returns 
  */
-function let_relationss(fields: Fields, tableName: TableName, alias: string, ts: TableRelationships[], config: Config, logger: any): string {
+function let_relationss(fields: Fields, tableName: TableName, alias: string, ts: TableRelationships[], config: Config, logger: FastifyBaseLogger): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
@@ -120,7 +121,7 @@ function let_relationss(fields: Fields, tableName: TableName, alias: string, ts:
  * @param queryTableAlias 
  * @returns 
  */
-function where_clause(expression: Expression, queryTableAlias: string, logger: any): string {
+function where_clause(expression: Expression, queryTableAlias: string, logger: FastifyBaseLogger): string {
   const generateWhere = (expression: Expression, currentTableAlias: string, prefix: string): string => {
     switch (expression.type) {
       case "not":
@@ -160,7 +161,7 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
 }
 
 
-function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string, _logger: any): string {
+function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string, _logger: FastifyBaseLogger): string {
   const path = comparisonColumn.path ?? [];
   _logger.info(`INFOOOO  ${comparisonColumn.name} ${path.length}`);
   
@@ -178,7 +179,7 @@ function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, qu
   }
 }
 
-function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: any): string {
+function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: FastifyBaseLogger): string {
   switch (comparisonValue.type) {
     case "column":
       return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias, _logger);
@@ -263,9 +264,9 @@ function n1ql_query(
   wLimit: number | null,
   wOffset: number | null,
   wOrder: OrderBy | null,
-  logger: any,
+  logger: FastifyBaseLogger,
 ): string {
-  const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
   const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
     const innerFromClauses = `${let_relationss(fields, tableName, tableAlias, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
@@ -329,7 +330,7 @@ function order(orderBy: OrderBy | null, queryTableAlias: string): string {
 
   const result =
     orderBy.elements
-      .map((orderByElement: any) => {
+      .map((orderByElement: OrderByElement) => {
         if (orderByElement.target_path.length > 0 || orderByElement.target.type !== "column") {
           throw new Error("Unsupported OrderByElement. Relations and aggregates and not supported.");
         }
@@ -344,7 +345,7 @@ function order(orderBy: OrderBy | null, queryTableAlias: string): string {
  * @param queryTableAlias represent type of the document
  * @returns string representing the combined where clause
  */
-function where(whereExpression: Expression | null, queryTableAlias: string, logger: any): string {
+function where(whereExpression: Expression | null, queryTableAlias: string, logger: FastifyBaseLogger): string {
   const whereClause = whereExpression !== null ? [`type = "${queryTableAlias}"`, where_clause(whereExpression, queryTableAlias, logger)] : [`type = "${queryTableAlias}"`];
   logger.info(whereClause);
   return whereClause.length < 1
@@ -389,7 +390,7 @@ type Aggregates = Record<string, Aggregate>
 * Builds an Aggregate query expression.
 */
 function aggregates_query(
-  logger: any,
+  logger: FastifyBaseLogger,
   config: Config,
   tableName: TableName,
   aggregates: Aggregates,
@@ -401,7 +402,7 @@ function aggregates_query(
   if (isEmptyObject(aggregates))
     return "";
 
-  const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
 
   const whereClause = where(wWhere, tableAlias, logger);
@@ -431,7 +432,7 @@ function aggregates_query(
  *  @param logger Fastify logger to inclue some informations in server log.
  *  @return string
  */
-function query(request: QueryRequest, config: Config, logger: any): string {
+function query(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
   logger.info(request.query);
   const result = n1ql_query(
     config,
@@ -450,7 +451,7 @@ function query(request: QueryRequest, config: Config, logger: any): string {
 }
 
 
-function agregateQuery(request: QueryRequest, config: Config, logger: any): string {
+function agregateQuery(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
   const aggregate = aggregates_query(logger, config, request.table, 
     coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), 
     coerceUndefinedToNull(request.query.where), 
@@ -467,9 +468,9 @@ function agregateQuery(request: QueryRequest, config: Config, logger: any): stri
  * Note: There should always be one result since 0 rows still generates an empty JSON array.
  * @param result from couchbase query and parse to generate null columns
  * @param defaultObject object with struct that need project
- * @return any
+ * @return QueryResponse
  */
-function output(result: { rows: Array<any> }, defaultObject: any, agregate: { rows: Array<any> } | null, logger: any): any {
+function output(result: QueryResult, defaultObject: any, agregate: QueryResult | null): QueryResponse {
   const rows: any[] = [];
 
   result.rows.forEach(element => {
@@ -523,7 +524,7 @@ function defaultObject(request: QueryRequest) {
  * @param logger instance of fastify logger
  *
  */
-export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: any): Promise<QueryResponse | ErrorResponse> {
+export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: FastifyBaseLogger): Promise<QueryResponse | ErrorResponse> {
   logger.info(queryRequest);
   const q = query(queryRequest, config, logger);
   const q_aggregate = agregateQuery(queryRequest, config, logger);
@@ -546,7 +547,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
       const bucket = cluster.bucket(config.bucket);
       const result = await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters});
       const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
-      return output(result, defaultObject(queryRequest), agregate_result, logger);
+      return output(result, defaultObject(queryRequest), agregate_result);
     }
     catch (ex) {
       if (ex instanceof IndexFailureError) {
@@ -579,7 +580,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
  * @param queryRequest
  * @returns
  */
-export async function explain(cluster: Cluster, config: Config, logger: any, queryRequest: QueryRequest): Promise<ExplainResponse | ErrorResponse> {
+export async function explain(cluster: Cluster, config: Config, logger: FastifyBaseLogger, queryRequest: QueryRequest): Promise<ExplainResponse | ErrorResponse> {
   try {
     const q = query(queryRequest, config, logger);
     const { rows } = await cluster.query(`EXPLAIN ${q}`);
@@ -608,7 +609,7 @@ export async function explain(cluster: Cluster, config: Config, logger: any, que
 }
 
 
-export async function runRawOperation(cluster: Cluster, config: Config, logger: any, query: RawRequest): Promise<RawResponse | ErrorResponse> {
+export async function runRawOperation(cluster: Cluster, config: Config, logger: FastifyBaseLogger, query: RawRequest): Promise<RawResponse | ErrorResponse> {
 
   try {
     const { rows } = await cluster.query(query.query);

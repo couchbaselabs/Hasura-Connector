@@ -1,14 +1,11 @@
-import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse } from "@hasura/dc-api-types";
-import { Cluster, IndexFailureError } from "couchbase";
+import { BinaryArrayComparisonOperator, BinaryComparisonOperator, ComparisonColumn, ComparisonValue, ErrorResponse, Expression, Aggregate, Field, OrderBy, OrderDirection, QueryRequest, QueryResponse, TableName, TableRelationships, UnaryComparisonOperator, ExplainResponse, RawRequest, RawResponse, Relationship, AndExpression, ApplyBinaryComparisonOperator, OrderByElement } from "@hasura/dc-api-types";
+import { Cluster, IndexFailureError, QueryResult } from "couchbase";
+import { FastifyBaseLogger } from "fastify";
 import { Config } from "./config";
 import { coerceUndefinedOrNullToEmptyRecord, coerceUndefinedToNull, envToBool, envToNum, isEmptyObject, omap, unreachable } from "./utils";
 /** Helper type for convenience. Uses the sqlstring-sqlite library, but should ideally use the function in sequalize.
  */
 type Fields = Record<string, Field>
-
-function valueTemplate(value: any): string {
-  return `'${value}'`;
-}
 
 /**
  *
@@ -39,13 +36,18 @@ function validateTableName(tableName: TableName): TableName {
  * @param fields 
  * @returns 
  */
-function select_fields(fields: Fields): string {
+function select_fields(fields: Fields, tableName: TableName, ts: TableRelationships[]): string {
   const result = omap(fields, (fieldName, field) => {
     switch (field.type) {
       case "column":
         return `${ field.column == 'id' ? "meta().id" : field.column } AS ${fieldName}`;
       case "relationship":
-        throw new Error(`Relationship field are no support`);
+        let relations = ts.find((rel) =>rel.source_table.join(".") == tableName.join("."));
+        let relation = relations?.relationships[field.relationship];
+        if (!relation) {
+          throw new Error(`Relationship field are no support`);
+        }
+        return `(SELECT * FROM [l${fieldName}] as \`rows\`)[0] as ${fieldName}`
       default:
         return unreachable(field["type"]);
     }
@@ -55,51 +57,101 @@ function select_fields(fields: Fields): string {
 }
 
 /**
+ * Generate LET to with relation data of N1QL 
+ * @param fields 
+ * @returns 
+ */
+function let_relationss(fields: Fields, tableName: TableName, alias: string, ts: TableRelationships[], config: Config, logger: FastifyBaseLogger): string {
+  const result = omap(fields, (fieldName, field) => {
+    switch (field.type) {
+      case "column":
+        return '';
+      case "relationship":
+        let relations = ts.find((rel) =>rel.source_table.join(".") == tableName.join("."));
+        let relation = relations?.relationships[field.relationship];
+        if (!relation) {
+          throw new Error(`Relationship field are no support`);
+        }
+        const { query } = field;
+        const { column_mapping : mapping } = relation;
+        let onPart : AndExpression = {
+          expressions : [],
+          type: "and",
+        };
+        if (coerceUndefinedToNull(query.where)) {
+          onPart.expressions.push(coerceUndefinedToNull(query.where)!);
+        }
+        for(const key in mapping) {
+          let clasule: ApplyBinaryComparisonOperator = {
+            column: { name: mapping[key], column_type: 'string',},
+            operator: 'equal',
+            type: 'binary_op',
+            value: {
+              type: 'column',
+              column: {
+                name: key,
+                column_type: 'string',
+                path: [alias]
+              }
+            }
+          } 
+          onPart.expressions.push(clasule)
+        }
+        const n1qlQuery = n1ql_query(config, ts, relation!.target_table, 
+            coerceUndefinedOrNullToEmptyRecord(query.fields), 
+            onPart, 
+            relation.relationship_type == 'object' ? 1 : coerceUndefinedToNull(query.limit), 0, 
+            coerceUndefinedToNull(query.order_by), 
+            logger
+        );
+
+        return `LET l${fieldName} = (${n1qlQuery} )`;
+       // throw new Error(`Relationship field are no support`);
+      default:
+        return unreachable(field["type"]);
+    }
+  }).join(" ");
+
+  return tag('let', `${result}`);
+}
+
+/**
  * Convert all expression to conditions of WHERE clasule of N1QL
  * @param expression 
  * @param queryTableAlias 
  * @returns 
  */
-function where_clause(expression: Expression, queryTableAlias: string, logger: any): string {
+function where_clause(expression: Expression, queryTableAlias: string, logger: FastifyBaseLogger): string {
   const generateWhere = (expression: Expression, currentTableAlias: string, prefix: string): string => {
     switch (expression.type) {
       case "not":
         const aNot = generateWhere(expression.expression, currentTableAlias, `${prefix}not_`);
         return `(NOT ${aNot})`;
-
       case "and":
         const aAnd = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}and_`));
         return aAnd.length > 0
           ? `(${aAnd.join(" AND ")})`
           : "(1 = 1)"; // true
-
       case "or":
         const aOr = expression.expressions.flatMap(x => generateWhere(x, currentTableAlias, `${prefix}or_`));
         return aOr.length > 0
           ? `(${aOr.join(" OR ")})`
           : "(1 = 0)"; // false
-
       case "exists":
         throw new Error(`Exists expression are not supported.`);
-
       case "unary_op":
         const uop = uop_op(expression.operator);
-        const columnFragment = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const columnFragment = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         return `(${columnFragment} ${uop})`;
-
       case "binary_op":
-        const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const bopLhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         const bop = bop_op(expression.operator);
         const bopRhs = generateComparisonValueFragment(expression.column.name, expression.value, queryTableAlias, currentTableAlias, prefix, logger);
         return `${bopLhs} ${bop} ${bopRhs}`;
-
       case "binary_arr_op":
-        const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias);
+        const bopALhs = generateComparisonColumnFragment(expression.column, queryTableAlias, currentTableAlias, logger);
         const bopA = bop_array(expression.operator);
-        /*logger.info(`TYPE: ${expression.values}`);
-        const bopARhsValues = expression.values.map(v => expression.value_type == "string" ? valueTemplate(v) : v).join(", ");*/
         return `(${bopALhs} ${bopA} $${prefix}${expression.column.name})`;
-
       default:
         return unreachable(expression['type']);
     }
@@ -109,24 +161,29 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: a
 }
 
 
-function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string): string {
+function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string, _logger: FastifyBaseLogger): string {
   const path = comparisonColumn.path ?? [];
+  _logger.info(`INFOOOO  ${comparisonColumn.name} ${path.length}`);
+  
   if (path.length === 0) {
-    return `${currentTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
+
+    return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${currentTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else if (path.length === 1 && path[0] === "$") {
-    return `${queryTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
+    return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${queryTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else {
-    throw new Error(`Unsupported path on ComparisonColumn: ${[...path, comparisonColumn.name].join(".")}`);
+    
+    if (comparisonColumn.name == 'id') {
+      return `meta(${[...path].join(".")}).id`;
+    }
+    return [...path, comparisonColumn.name].join(".");
   }
 }
 
-function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: any): string {
+function generateComparisonValueFragment(columnName: string, comparisonValue: ComparisonValue, queryTableAlias: string, currentTableAlias: string, prefix: string,  _logger: FastifyBaseLogger): string {
   switch (comparisonValue.type) {
     case "column":
-      return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias);
+      return generateComparisonColumnFragment(comparisonValue.column, queryTableAlias, currentTableAlias, _logger);
     case "scalar":
-      /*if (["string", "date"].includes(comparisonValue.value_type.toLowerCase())) return valueTemplate(comparisonValue.value);
-      return comparisonValue.value;*/
       return `$${prefix}${columnName}`;
     default:
       return unreachable(comparisonValue["type"]);
@@ -200,19 +257,20 @@ function toParameters(expression: Expression): Parameter {
   */
 function n1ql_query(
   config: Config,
+  ts: TableRelationships[],
   tableName: TableName,
   fields: Fields,
   wWhere: Expression | null,
   wLimit: number | null,
   wOffset: number | null,
   wOrder: OrderBy | null,
-  logger: any,
+  logger: FastifyBaseLogger,
 ): string {
-  const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
   const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
-    const innerFromClauses = `${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
-    return `SELECT ${select_fields(fields)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
+    const innerFromClauses = `${let_relationss(fields, tableName, tableAlias, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
+    return `SELECT ${select_fields(fields, tableName, ts)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
   })()
   logger.info(`Converter expression to query ${n1qlQuery}`);
   return tag('n1ql_query', `${n1qlQuery}`);
@@ -272,7 +330,7 @@ function order(orderBy: OrderBy | null, queryTableAlias: string): string {
 
   const result =
     orderBy.elements
-      .map((orderByElement: any) => {
+      .map((orderByElement: OrderByElement) => {
         if (orderByElement.target_path.length > 0 || orderByElement.target.type !== "column") {
           throw new Error("Unsupported OrderByElement. Relations and aggregates and not supported.");
         }
@@ -287,7 +345,7 @@ function order(orderBy: OrderBy | null, queryTableAlias: string): string {
  * @param queryTableAlias represent type of the document
  * @returns string representing the combined where clause
  */
-function where(whereExpression: Expression | null, queryTableAlias: string, logger: any): string {
+function where(whereExpression: Expression | null, queryTableAlias: string, logger: FastifyBaseLogger): string {
   const whereClause = whereExpression !== null ? [`type = "${queryTableAlias}"`, where_clause(whereExpression, queryTableAlias, logger)] : [`type = "${queryTableAlias}"`];
   logger.info(whereClause);
   return whereClause.length < 1
@@ -332,7 +390,7 @@ type Aggregates = Record<string, Aggregate>
 * Builds an Aggregate query expression.
 */
 function aggregates_query(
-  logger: any,
+  logger: FastifyBaseLogger,
   config: Config,
   tableName: TableName,
   aggregates: Aggregates,
@@ -344,7 +402,7 @@ function aggregates_query(
   if (isEmptyObject(aggregates))
     return "";
 
-  const tableAlias = validateTableName(tableName).map((str: any) => str.toLowerCase()).join("_");
+  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
   const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
 
   const whereClause = where(wWhere, tableAlias, logger);
@@ -374,10 +432,11 @@ function aggregates_query(
  *  @param logger Fastify logger to inclue some informations in server log.
  *  @return string
  */
-function query(request: QueryRequest, config: Config, logger: any): string {
+function query(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
   logger.info(request.query);
   const result = n1ql_query(
     config,
+    request.table_relationships,
     request.table,
     coerceUndefinedOrNullToEmptyRecord(request.query.fields),
     coerceUndefinedToNull(request.query.where),
@@ -392,10 +451,14 @@ function query(request: QueryRequest, config: Config, logger: any): string {
 }
 
 
-function agregateQuery(request: QueryRequest, config: Config, logger: any): string {
-  const aggregate = aggregates_query(logger, config, request.table, coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), coerceUndefinedToNull(request.query.where), coerceUndefinedToNull(request.query.limit),
+function agregateQuery(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
+  const aggregate = aggregates_query(logger, config, request.table, 
+    coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), 
+    coerceUndefinedToNull(request.query.where), 
+    coerceUndefinedToNull(request.query.limit),
     coerceUndefinedToNull(request.query.offset),
-    coerceUndefinedToNull(request.query.order_by));
+    coerceUndefinedToNull(request.query.order_by),
+    );
   logger.info(aggregate);
   return tag('agregate_query', `${aggregate}`);
 }
@@ -405,13 +468,13 @@ function agregateQuery(request: QueryRequest, config: Config, logger: any): stri
  * Note: There should always be one result since 0 rows still generates an empty JSON array.
  * @param result from couchbase query and parse to generate null columns
  * @param defaultObject object with struct that need project
- * @return any
+ * @return QueryResponse
  */
-function output(result: { rows: Array<any> }, defaultObject: any, agregate: { rows: Array<any> } | null): any {
+function output(result: QueryResult, defaultObject: any, agregate: QueryResult | null): QueryResponse {
   const rows: any[] = [];
 
   result.rows.forEach(element => {
-    rows.push({ ...defaultObject, ...element });
+    rows.push({ ... defaultObject, ... element });
   });
   return { rows: rows, aggregates: agregate?.rows[0] };
 }
@@ -461,7 +524,7 @@ function defaultObject(request: QueryRequest) {
  * @param logger instance of fastify logger
  *
  */
-export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: any): Promise<QueryResponse | ErrorResponse> {
+export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: FastifyBaseLogger): Promise<QueryResponse | ErrorResponse> {
   logger.info(queryRequest);
   const q = query(queryRequest, config, logger);
   const q_aggregate = agregateQuery(queryRequest, config, logger);
@@ -517,7 +580,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
  * @param queryRequest
  * @returns
  */
-export async function explain(cluster: Cluster, config: Config, logger: any, queryRequest: QueryRequest): Promise<ExplainResponse | ErrorResponse> {
+export async function explain(cluster: Cluster, config: Config, logger: FastifyBaseLogger, queryRequest: QueryRequest): Promise<ExplainResponse | ErrorResponse> {
   try {
     const q = query(queryRequest, config, logger);
     const { rows } = await cluster.query(`EXPLAIN ${q}`);
@@ -546,7 +609,7 @@ export async function explain(cluster: Cluster, config: Config, logger: any, que
 }
 
 
-export async function runRawOperation(cluster: Cluster, config: Config, logger: any, query: RawRequest): Promise<RawResponse | ErrorResponse> {
+export async function runRawOperation(cluster: Cluster, config: Config, logger: FastifyBaseLogger, query: RawRequest): Promise<RawResponse | ErrorResponse> {
 
   try {
     const { rows } = await cluster.query(query.query);

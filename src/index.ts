@@ -63,10 +63,12 @@ if (METRICS_ENABLED) {
 
 if (envToBool('PERMISSIVE_CORS')) {
   // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
+  const methods = envToString('CORS_METHODS', '').length > 0 ?  envToString('CORS_METHODS', '').split('/') : ["GET", "POST", "OPTIONS"];
+  const allowedHeaders = envToString('CORS_HEADERS', '').length > 0 ?  envToString('CORS_HEADERS', '').split('/') : [];
   server.register(FastifyCors, {
     origin: true,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["X-Hasura-DataConnector-Config", "X-Hasura-DataConnector-SourceName"]
+    methods: methods,
+    allowedHeaders: ["X-Hasura-DataConnector-Config", "X-Hasura-DataConnector-SourceName", ... allowedHeaders],
   });
 }
 

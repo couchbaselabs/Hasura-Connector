@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyInstance, FastifyPluginOptions, HookHandlerDoneFunction } from 'fastify';
 import FastifyCors from '@fastify/cors';
 import { getConfig, tryGetConfig } from './config';
 import { capabilitiesResponse } from './capabilities';
@@ -6,7 +6,7 @@ import { connectToCluster, envToBool, envToNum, envToString } from './utils';
 import * as fs from 'fs'
 import { QueryResponse, SchemaResponse, QueryRequest, CapabilitiesResponse, ErrorResponse, ExplainResponse, RawRequest, RawResponse } from '@hasura/dc-api-types';
 import { getSchema } from './schema';
-import { Cluster, ServiceType } from 'couchbase';
+import { ServiceType } from 'couchbase';
 import { explain, queryData, runRawOperation } from './query';
 import dotenv from 'dotenv';
 import metrics from 'fastify-metrics';
@@ -108,33 +108,29 @@ const queryHistogram = new prometheus.Histogram({
  * @param {FastifyInstance} fastify encapsulated fastify instance
  * @param {Object} options plugin options, refer to https://www.fastify.io/docs/latest/Reference/Plugins/#plugin-options
  */
-async function routes(fastify: any, options: any, done: any) {
+async function routes(fastify: FastifyInstance, options: FastifyPluginOptions | Object, done: HookHandlerDoneFunction) {
   // NOTE:
-  //
   // While an ErrorResponse is available it is not currently used as there are no errors anticipated.
   // It is included here for illustrative purposes.
   //
-  server.get<{ Reply: CapabilitiesResponse | ErrorResponse }>("/capabilities", async (request, _response) => {
-    server.log.info({ headers: request.headers, query: request.body, }, "capabilities.request");
+  fastify.get<{ Reply: CapabilitiesResponse | ErrorResponse }>("/capabilities", async (request, _response) => {
+    fastify.log.debug({ headers: request.headers, query: request.body, }, "capabilities.request");
     return capabilitiesResponse;
   });
 
-  server.get<{ Reply: SchemaResponse }>("/schema", async (request, _response) => {
-    server.log.info({ headers: request.headers, query: request.body, }, "schema.request");
+  fastify.get<{ Reply: SchemaResponse }>("/schema", async (request, _response) => {
+    fastify.log.debug({ headers: request.headers, query: request.body, }, "schema.request");
     const config = getConfig(request);
-    console.log(config);
-    const cluster = await connectToCluster(config, server.log);
+    const cluster = await connectToCluster(config, fastify.log);
     return getSchema(config, cluster, server.log);
   });
 
-
-  server.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/query", async (request, response) => {
-    server.log.info({ headers: request.headers, query: request.body, }, "query.request");
+  fastify.post<{ Body: QueryRequest, Reply: QueryResponse | ErrorResponse }>("/query", async (request, response) => {
+    fastify.log.debug({ headers: request.headers, query: request.body, }, "query.request");
     const end = queryHistogram.startTimer()
     const config = getConfig(request);
-    server.log.info(request.body);
-    const cluster = await connectToCluster(config, server.log);
-    const result: QueryResponse | ErrorResponse = await queryData(cluster, request.body, config, server.log);
+    const cluster = await connectToCluster(config, fastify.log);
+    const result: QueryResponse | ErrorResponse = await queryData(cluster, request.body, config, fastify.log);
     end();
     if ("message" in result) {
       response.statusCode = 500;
@@ -142,42 +138,42 @@ async function routes(fastify: any, options: any, done: any) {
     return result;
   });
 
-  server.post<{ Body: RawRequest, Reply: RawResponse | ErrorResponse }>("/raw", async (request, _response) => {
-    server.log.info({ headers: request.headers, query: request.body, }, "schema.raw");
+  fastify.post<{ Body: RawRequest, Reply: RawResponse | ErrorResponse }>("/raw", async (request, _response) => {
+    fastify.log.debug({ headers: request.headers, query: request.body, }, "schema.raw");
     const config = getConfig(request);
-    server.log.info("RAW QUERY");
-    server.log.info(request.body);
-    const cluster = await connectToCluster(config, server.log);
-    return runRawOperation(cluster, config, server.log, request.body);
+    fastify.log.debug(`RAW QUERY ${request.body}`);
+    const cluster = await connectToCluster(config, fastify.log);
+    return runRawOperation(cluster, fastify.log, request.body);
   });
 
-  server.post<{ Body: QueryRequest, Reply: ExplainResponse | ErrorResponse }>("/explain", async (request, _response) => {
-    server.log.info({ headers: request.headers, query: request.body, }, "query.request");
+  fastify.post<{ Body: QueryRequest, Reply: ExplainResponse | ErrorResponse }>("/explain", async (request, _response) => {
+    fastify.log.debug({ headers: request.headers, query: request.body, }, "query.request");
     const config = getConfig(request);
-    const cluster = await connectToCluster(config, server.log);
-    return explain(cluster, config, server.log, request.body);
+    const cluster = await connectToCluster(config, fastify.log);
+    return explain(cluster, config, fastify.log, request.body);
   });
 
-  server.get("/health", async (request, response) => {
+  fastify.get("/health", async (request, response) => {
     const config = tryGetConfig(request);
     response.type('application/json');
-    server.log.info({ config }, "health.request");
+    fastify.log.debug({ config }, "health.request");
     if (config === null) {
-      server.log.info({ headers: request.headers, query: request.body, }, "health.request");
+      server.log.debug({ headers: request.headers, query: request.body, }, "health.request");
       response.statusCode = 204;
     } else if (config.healtCheckStrategy !== null) {
       
-      server.log.info({ headers: request.headers, query: request.body, }, "health.db.request");
-      const cluster = await connectToCluster(config, server.log);
+      fastify.log.debug({ headers: request.headers, query: request.body, }, "health.db.request");
+      const cluster = await connectToCluster(config, fastify.log);
       let services = [ServiceType.KeyValue, ServiceType.Query];
       
       if (config.healtCheckStrategy === 'ping') {
         try {
           const result = await cluster.ping({serviceTypes: services});
           response.statusCode = 204;
-          server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
+          fastify.log.debug({ headers: request.headers, query: request.body, result: result }, "health.db.request");
         }
         catch (e) {
+          fastify.log.error(e, "Error {e}");
           response.statusCode = 500;
           return { "error": "problem executing query", "query_result": e };
         }
@@ -186,10 +182,11 @@ async function routes(fastify: any, options: any, done: any) {
         try {
           const result = await cluster.diagnostics();
           response.statusCode = 204;
-          server.log.info({ headers: request.headers, query: request.body, result: result }, "health.db.request");
+          fastify.log.debug({ headers: request.headers, query: request.body, result: result }, "health.db.request");
         }
         catch (e) {
           response.statusCode = 500;
+          fastify.log.error(e, "Error {e}");
           return { "error": "problem executing query", "query_result": e };
         }
       }
@@ -200,14 +197,14 @@ async function routes(fastify: any, options: any, done: any) {
     }
   });
 
-  server.get("/swagger.json", async (request, response) => {
+  fastify.get("/swagger.json", async (request, response) => {
     fs.readFile('src/types/agent.openapi.json', (err, fileBuffer) => {
       response.type('application/json');
       response.send(err || fileBuffer)
     })
   })
 
-  server.get("/", async (request, response) => {
+  fastify.get("/", async (request, response) => {
     response.type('text/html');
     return `<!DOCTYPE html>
     <html>
@@ -243,7 +240,6 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-
 const start = async () => {
   try {
     server.log.info(`STARTING on port ${port}`);
@@ -254,6 +250,5 @@ const start = async () => {
     process.exit(1);
   }
 };
-
 
 start();

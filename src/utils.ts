@@ -21,7 +21,6 @@ export const zip = <T, U>(arr1: T[], arr2: U[]): [T, U][] => {
     return newArray;
 };
 export const tableNameEquals = (tableName1: TableName) => (tableName2: TableName): boolean => {
-    console.log(tableName1, tableName2);
     if (tableName1.length !== tableName2.length)
         return false;
 

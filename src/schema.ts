@@ -10,7 +10,6 @@ export async function getSchema(config: Config, cluster: Cluster, logger: any): 
 
   const tables: TableInfo[] = [];
   let result = await cluster.query(inferQuery(config.bucket, config.scope, config.collection));
-  //logger.info(result);
   let schemaInfo = result.rows[0];
 
   for (const k in schemaInfo) {
@@ -30,7 +29,7 @@ export async function getSchema(config: Config, cluster: Cluster, logger: any): 
           nullable = true;
           properties[key].type.splice(index, 1);
           type = properties[key].type[0];
-          logger.info(type);
+          logger.debug(type);
         }
       }
 

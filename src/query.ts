@@ -163,19 +163,12 @@ function where_clause(expression: Expression, queryTableAlias: string, logger: F
 
 function generateComparisonColumnFragment(comparisonColumn: ComparisonColumn, queryTableAlias: string, currentTableAlias: string, _logger: FastifyBaseLogger): string {
   const path = comparisonColumn.path ?? [];
-  _logger.info(`INFOOOO  ${comparisonColumn.name} ${path.length}`);
-  
   if (path.length === 0) {
-
     return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${currentTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else if (path.length === 1 && path[0] === "$") {
     return comparisonColumn.name == 'id' ? `meta(${currentTableAlias}).id` :  `${queryTableAlias}.${escapeIdentifier(comparisonColumn.name)}`
   } else {
-    
-    if (comparisonColumn.name == 'id') {
-      return `meta(${[...path].join(".")}).id`;
-    }
-    return [...path, comparisonColumn.name].join(".");
+    return comparisonColumn.name == 'id' ? `meta(${[...path].join(".")}).id` : [...path, comparisonColumn.name].join(".");
   }
 }
 
@@ -192,35 +185,30 @@ function generateComparisonValueFragment(columnName: string, comparisonValue: Co
 
 type Parameter = {[key:string]:any};
 
-function toParameters(expression: Expression): Parameter {
-
-  const generateParameters = (expression: Expression, prefix: string): Parameter => {
+function toParameters(expression: Expression, logger: FastifyBaseLogger): Parameter {
+  const generateParameters = (expression: Expression, prefix: string, logger: FastifyBaseLogger): Parameter => {
+    logger.debug(`Building params in N1QL with prefix ${prefix}`);
     switch (expression.type) {
       case "not":
-        return generateParameters(expression.expression, `${prefix}not_`);
-
+        return generateParameters(expression.expression, `${prefix}not_`, logger);
       case "and":
-        const params = expression.expressions.flatMap(x => generateParameters(x, `${prefix}and_`));
+        const params = expression.expressions.flatMap(x => generateParameters(x, `${prefix}and_`, logger));
         let andParameter : Parameter  = {};
 
         params.forEach((value) => {
           andParameter = {...andParameter, ...value}
         });
-
         return andParameter;
       case "or":
-         const orParams  = expression.expressions.flatMap(x => generateParameters(x,`${prefix}or_`));
+         const orParams  = expression.expressions.flatMap(x => generateParameters(x,`${prefix}or_`, logger));
          let orParameter : Parameter  = {};
-
          orParams.forEach((value) => {
           orParameter = {...andParameter, ...value}
          });
- 
          return orParameter;
       case "exists":
       case "unary_op":
         return {};
-
       case "binary_op":
         const { column, value} = expression;
         const parameter : Parameter = {};
@@ -228,19 +216,16 @@ function toParameters(expression: Expression): Parameter {
           parameter [`${prefix}${column.name}`] = value.value;
         }
         return parameter;
-
       case "binary_arr_op":
         const { values } = expression;
         const binaryParam : Parameter = {};
         binaryParam [`${prefix}${expression.column.name}`] = values;
         return binaryParam;
-
       default:
         return unreachable(expression['type']);
     }
   };
-
-  return generateParameters(expression, 'p');
+  return generateParameters(expression, 'p', logger);
 }
 
 /**
@@ -512,10 +497,8 @@ function defaultObject(request: QueryRequest) {
 /** Performs a query and returns results
  *
  * Limitations:
- *
  * - Nested documents
  * - Related documents.
- *
  * The current algorithm is to first create a simple query from a document type in a collection of scope, then execute it, returning results.
  * 
  * @param cluster instance to cluster connection
@@ -525,7 +508,7 @@ function defaultObject(request: QueryRequest) {
  *
  */
 export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: FastifyBaseLogger): Promise<QueryResponse | ErrorResponse> {
-  logger.info(queryRequest);
+  logger.debug(queryRequest, "Query request");
   const q = query(queryRequest, config, logger);
   const q_aggregate = agregateQuery(queryRequest, config, logger);
 
@@ -543,20 +526,20 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
     return result;
   } else {
     try {
-      const parameters = queryRequest.query.where ? toParameters(queryRequest.query.where): {};
+      const parameters = queryRequest.query.where ? toParameters(queryRequest.query.where, logger): {};
       const bucket = cluster.bucket(config.bucket);
       const result = await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters});
       const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
       return output(result, defaultObject(queryRequest), agregate_result);
     }
     catch (ex) {
+      logger.error(ex, `captured.exception`);
       if (ex instanceof IndexFailureError) {
         return {
           message: ex.message,
           details: ex
         };
       }
-
       return {
         message: 'Unknow error',
         type: 'uncaught-error',
@@ -584,22 +567,20 @@ export async function explain(cluster: Cluster, config: Config, logger: FastifyB
   try {
     const q = query(queryRequest, config, logger);
     const { rows } = await cluster.query(`EXPLAIN ${q}`);
-
-    logger.info(`EXPLAINS ${rows}`);
-
+    logger.debug(`EXPLAINS result ${rows}`);
     return {
       query: q,
       lines: ["", JSON.stringify(rows, undefined, 4)]
     }
   }
   catch (ex) {
+    logger.error(ex, `captured.exception`);
     if (ex instanceof IndexFailureError) {
       return {
         message: ex.message,
         details: ex
       };
     }
-
     return {
       message: 'Unknow error',
       type: 'uncaught-error',
@@ -608,24 +589,31 @@ export async function explain(cluster: Cluster, config: Config, logger: FastifyB
   }
 }
 
-
-export async function runRawOperation(cluster: Cluster, config: Config, logger: FastifyBaseLogger, query: RawRequest): Promise<RawResponse | ErrorResponse> {
-
+/**
+ * Constructs a query as per the `POST /query` endpoint but prefixes it with `EXPLAIN` before execution.
+ * Formatted result lines are included under the `lines` field. An initial blank line is included to work around a display bug.
+ * NOTE: The Explain related items are included here since they are a small extension of Queries, and another module may be overkill.
+ *
+ * @param cluster
+ * @param logger
+ * @param queryRequest
+ * @returns
+ */
+export async function runRawOperation(cluster: Cluster, logger: FastifyBaseLogger, query: RawRequest): Promise<RawResponse | ErrorResponse> {
   try {
     const { rows } = await cluster.query(query.query);
-
     return {
       rows
     };
   }
   catch (ex) {
+    logger.error(ex, `captured.exception`);
     if (ex instanceof IndexFailureError) {
       return {
         message: ex.message,
         details: ex
       };
     }
-
     return {
       message: 'Unknow error',
       type: 'uncaught-error',

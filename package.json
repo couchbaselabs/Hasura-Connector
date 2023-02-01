@@ -15,22 +15,23 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/cors": "^2.8.12",
-    "@types/node": "^18.11.4",
+    "@types/cors": "^2.8.13",
+    "@types/node": "^18.11.18",
     "nodemon": "^2.0.20",
-    "rimraf": "^3.0.2",
+    "rimraf": "^4.1.2",
     "ts-node": "^10.9.1",
-    "typescript": "^4.8.4"
+    "typescript": "^4.9.5",
+    "pino-pretty": "^9.1.1"
   },
   "dependencies": {
-    "@fastify/cors": "^8.1.0",
-    "@hasura/dc-api-types": "^0.12.0",
+    "@fastify/cors": "^8.2.0",
+    "@hasura/dc-api-types": "^0.24.0",
     "cors": "^2.8.5",
     "couchbase": "^4.2.0",
     "dotenv": "^16.0.3",
-    "fastify": "^4.10.1",
-    "fastify-metrics": "^10.0.0",
-    "fastify-plugin": "^4.3.0",
+    "fastify": "^4.12.0",
+    "fastify-metrics": "^10.0.2",
+    "fastify-plugin": "^4.5.0",
     "prom-client": "^14.1.0"
   }
 }

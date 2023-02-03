@@ -29,7 +29,15 @@ const server = Fastify({
         : {}
     )
   }
-})
+});
+
+server.log.info("Starting with:")
+server.log.info(`\tPort: ${process.env['PORT']}`, );
+server.log.info(`\tPretty Logs: ${process.env['PRETTY_PRINT_LOGS']}`);
+server.log.info(`\tMertrics: ${process.env['METRICS']}`);
+server.log.info(`\tPermissive Cors: ${process.env['PERMISSIVE_CORS']}`);
+server.log.info(`\tCors Methods: ${process.env['CORS_METHODS']}`);
+server.log.info(`\tCors Headers: ${process.env['CORS_HEADERS']}`);
 
 server.setErrorHandler(function (error, _request, reply) {
   // Log error
@@ -63,7 +71,7 @@ if (METRICS_ENABLED) {
 
 if (envToBool('PERMISSIVE_CORS')) {
   // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin
-  const methods = envToString('CORS_METHODS', '').length > 0 ?  envToString('CORS_METHODS', '').split('/') : ["GET", "POST", "OPTIONS"];
+  const methods = envToString('CORS_METHODS', "GET/POST/OPTIONS").split('/');
   const allowedHeaders = envToString('CORS_HEADERS', '').length > 0 ?  envToString('CORS_HEADERS', '').split('/') : [];
   server.register(FastifyCors, {
     origin: true,

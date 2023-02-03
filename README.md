@@ -21,31 +21,9 @@ Note: You are able to get detailed metadata about the agent's capabilities by
 ## Requirements
 
 * NodeJS 16
-* "Couchbase": "^3.2.4" or compiled in JSON support
-    * Required for the json_group_array() and json_group_object() aggregate SQL functions
-    * https://www.sqlite.org/json1.html#jgrouparray
+* "Couchbase": "^3.2.4" 
 * Note: NPM is used for the [TS Types for the DC-API protocol](https://www.npmjs.com/package/@hasura/dc-api-types)
-
-## Build & Run
-
-```sh
-npm install
-npm run build
-npm run start
-```
-
-Or a simple dev-loop via `entr`:
-
-```sh
-echo src/**/*.ts | xargs -n1 echo | DB_READONLY=y entr -r npm run start
-```
-
-## Docker Build & Run
-
-```
-> docker build . -t dc-couchbase-agent:latest
-> docker run -it --rm -p 8100:8100 dc-couchbase-agent:latest
-```
+* Copy `.env.example` to `.env` and define your values to environment vars
 
 ## Options / Environment Variables
 
@@ -63,22 +41,25 @@ Note: Boolean flags `{FLAG}` can be provided as `1`, `true`, `yes`, or omitted a
 
 The agent is configured as per the configuration schema. The valid configuration properties are:
 
-| Property | Type | Default |
-| -------- | ---- | ------- |
-| `bucket` | `string` | |
-| `healtCheckStrategy` | `string` | `null` |
-| `scope` | `string` | `null` |
-| `collection` | `string` | `null` |
+| Property | Type | Default | Info |
+| -------- | ---- | ------- | ---------- |
+| `db`| `string` | | Connection string to couchbase cluster |
+| `username`| `string`| | User that will be use to connect with cluster|
+| `password`| `string`| |Password that will be use to connect with cluster|
+| `bucket` | `string` | | Bucket will be use from DC Agent |
+| `scope` | `string` | `default` | Scope will be use from DC Agent|
+| `collection` | `string` | `default` | Bucket will be use from DC Agent |
+| `healtCheckStrategy` | `string` | `null` | Strategic to check healt of cluster `ping` or `diagnostic` |
 
-The only required property is `bucket` which specifies a couchbase bucket in the cluster to use.
-
-The schema is exposed via introspection, but you can limit which tables are referenced by
+The schema is exposed via introspection, but you can limit which document are referenced by
 
 ## Dataset
 
-The dataset used for testing the reference agent is sourced from:
+The dataset used for testing the couchbase agent is sample buckets
+- Travel-sample
+- Beer-sample 
 
-// TODO
+## [Starting with Agent](GETTING_STARTED.md)
 
 ## Testing Changes to the Agent
 
@@ -93,18 +74,13 @@ From the HGE repo.
 ## TODO
 
 * [x] Prometheus metrics hosted at `/metrics`
-* [ ] Pull reference types from a package rather than checked-in files
+* [x] Pull reference types from a package rather than checked-in files
 * [x] Health Check
 * [x] DB Specific Health Checks
 * [x] Schema
 * [x] Capabilities
 * [x] Query
-* [ ] Ensure everything is escaped correctly - https://sequelize.org/api/v6/class/src/sequelize.js~sequelize#instance-method-escape
-* [ ] Or... Use parameterized queries if possible - https://sequelize.org/docs/v6/core-concepts/raw-queries/#bind-parameter
-* [ ] Run test-suite from SDK
-* [ ] Add ENV Variable for restriction on what databases can be used
-* [ ] Fix SDK Test suite to be more flexible about descriptions
-* [ ] Check that looped exist check doesn't cause name conflicts
+
 
 # Known Bugs
 

@@ -15,7 +15,7 @@ The Couchbase agent currently supports the following capabilities:
 * [ ] Subscriptions
 * [ ] Streaming Subscriptions
 
-Note: You are able to get detailed metadata about the agent's capabilities by
+Note: You can get detailed metadata about the agent's capabilities by
 `GET`ting the `/capabilities` endpoint of the running agent.
 
 ## Requirements
@@ -44,14 +44,14 @@ The agent is configured as per the configuration schema. The valid configuration
 | Property | Type | Default | Info |
 | -------- | ---- | ------- | ---------- |
 | `db`| `string` | | Connection string to couchbase cluster |
-| `username`| `string`| | User that will be use to connect with cluster|
-| `password`| `string`| |Password that will be use to connect with cluster|
-| `bucket` | `string` | | Bucket will be use from DC Agent |
-| `scope` | `string` | `default` | Scope will be use from DC Agent|
-| `collection` | `string` | `default` | Bucket will be use from DC Agent |
-| `healtCheckStrategy` | `string` | `null` | Strategic to check healt of cluster `ping` or `diagnostic` |
+| `username`| `string`| | User that will be used to connect with cluster|
+| `password`| `string`| |Password that will be used to connect with cluster|
+| `bucket` | `string` | | Bucket that will be used from DC Agent |
+| `scope` | `string` | `default` | Scope that will be used from DC Agent|
+| `collection` | `string` | `default` | Collection that will be used from DC Agent |
+| `healtCheckStrategy` | `string` | `null` | Strategic to check health of cluster `ping` or `diagnostic` |
 
-The schema is exposed via introspection, but you can limit which document are referenced by
+The schema is exposed via introspection, but you can limit which documents are referenced by
 
 ## Dataset
 

@@ -4,7 +4,7 @@
 	  "backend_configs": {
 		"dataconnector": {
 		  "couchbase": {
-			"uri": "http://couchbase-agent:8100"
+			"uri": "http://localhost:8100"
 		  }
 		}
 	  },
@@ -15,7 +15,7 @@
 		  "tables": [],
 		  "configuration": {
 			"value": {
-			  "db": "db1",
+			  "db": "localhost",
 			  "username": "Administrator",
 			  "password": "Passw0rd$12",
 			  "bucket": "travel-sample",

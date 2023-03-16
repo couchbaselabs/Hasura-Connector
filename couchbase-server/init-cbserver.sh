@@ -41,7 +41,7 @@ if ! [ -f "$FILE" ]; then
   # sleep 2s
 
   #add the meta data to hasura
-  /opt/couchbase/bin/curl -v -d -H "Content-Type: application/json" "@/opt/couchbase/init/metadata.json" http://hasura:8080/v1/metadata
+  /opt/couchbase/bin/curl -v -d "@/opt/couchbase/init/metadata.json" http://hasura:8080/v1/metadata
   # create file so we know that the cluster is setup and don't run the setup again 
   touch $FILE
 fi 

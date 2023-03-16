@@ -143,3 +143,7 @@ dist
 .env
 build/
 metadata/
+
+# Docker build files
+src.cblite2/
+dist-newstyle/

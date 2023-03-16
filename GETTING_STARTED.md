@@ -44,6 +44,9 @@ experimental feature) to allow the DC agent and HGE to connect.
 ``` sh
 docker-compose up --build -d
 ```
+
+The username and password to connect to the Couchbase Cluster can be found in the docker-compose.yml file.  The couchbase-server will automatically start up, create a cluster with the provided username and password, and load the `travel-sample` bucket.
+
 # Data Connectors
 
 This document describes the specification of the DC Couchbase Agent that needs to be used with the new feature (data connectors from Hasura `graphql-engine`, which is under active development)

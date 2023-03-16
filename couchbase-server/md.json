@@ -1,0 +1,29 @@
+{
+	"metadata": {
+	  "version": 3,
+	  "backend_configs": {
+		"dataconnector": {
+		  "couchbase": {
+			"uri": "http://couchbase-agent:8100"
+		  }
+		}
+	  },
+	  "sources": [
+		{
+		  "name": "couchbase",
+		  "kind": "couchbase",
+		  "tables": [],
+		  "configuration": {
+			"value": {
+			  "db": "db1",
+			  "username": "Administrator",
+			  "password": "Passw0rd$12",
+			  "bucket": "travel-sample",
+			  "scope": "inventory",
+			  "collection": "airline"
+			}
+		  }
+		}
+	  ]
+	}
+  }

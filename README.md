@@ -57,9 +57,8 @@ The schema is exposed via introspection, but you can limit which documents are r
 
 The dataset used for testing the couchbase agent is sample buckets
 - Travel-sample
-- Beer-sample 
 
-## [Starting with Agent](GETTING_STARTED.md)
+## [Get started with Couchbase agent](GETTING_STARTED.md)
 
 ## Testing Changes to the Agent
 

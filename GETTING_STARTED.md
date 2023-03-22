@@ -49,7 +49,7 @@ query {
 
 # Using CLI
 
-Once an agent is running, edit the following metadata located in `@/opt/couchbase/init/metadata.json` and import it into `graphql-engine` using the the Docker terminal for couchbase-server. 
+Once an agent is running, edit the following metadata located in `@/opt/couchbase/init/metadata.json` and import it into `graphql-engine` using the the Docker terminal for couchbase-server using the command: 
 
 ```sh
   /opt/couchbase/bin/curl -v -d "@/opt/couchbase/init/metadata.json" http://hasura:8080/v1/metadata

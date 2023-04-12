@@ -19,4 +19,4 @@ jobs:
     - name: Build the Docker image
       run: docker-compose up --build -d
     - name: Test that the agent is running
-      run: curl localhost:8100/schema
+      run: curl -sSf http://localhost:8100/health > /dev/null && echo "Healthy"

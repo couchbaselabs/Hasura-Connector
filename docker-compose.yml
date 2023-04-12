@@ -28,7 +28,7 @@ services:
     environment:  
       - CLUSTER_NAME=db1
       - COUCHBASE_ADMINISTRATOR_USERNAME=Administrator
-      - COUCHBASE_ADMINISTRATOR_PASSWORD=Passw0rd$12
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=Passw0rd$$12
       - COUCHBASE_RAM_SIZE=2048
       - COUCHBASE_INDEX_RAM_SIZE=512
     hostname: db1 

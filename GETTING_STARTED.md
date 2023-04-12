@@ -1,51 +1,4 @@
-# Build & Run
 
-First, make a copy of the `.env.example` file to the `.env` file with the last updated values
-
-```sh
-cp .env.example .env
-```
-
-## Build & Run with NPM
-
-Use these (entries/statements/lines) to install the project
-dependencies, build it and start it:
-
-```sh
-npm install
-npm run build
-npm run start
-```
-
-Or use a simple dev-loop via `entr`:
-
-```sh
-echo src/**/*.ts | xargs -n1 echo | PORT=8100 entr -r npm run start
-```
-
-## Docker Build & Run
-
-Now, build and run the latest dc-couchbase-agent.
-
-```
-> docker build . -t dc-couchbase-agent:latest
-> docker run -it --rm -p 8100:8100 dc-couchbase-agent:latest
-```
-
-**Note:** These (entries/statements/lines) are assuming that the PORT was
-not changed in the .env file, nor registered when the docker container was
-run.
-
-## Compose docker 
-
-Start an instance of couchbase and Hasura Graphql Engine (HGE, with the
-experimental feature) to allow the DC agent and HGE to connect.
-
-``` sh
-docker-compose up --build -d
-```
-
-The username and password to connect to the Couchbase Cluster can be found in the docker-compose.yml file.  The couchbase-server will automatically start up, create a cluster with the provided username and password, and load the `travel-sample` bucket.
 
 # Data Connectors
 
@@ -59,77 +12,26 @@ This document specifies the behavior of the agent for Couchbase.
 
 This specification is complete with regards to the current implementation. However it but should be considered _unstable_ until the Data Connectors feature is officially released and explicitly marked as a non-experimental feature.
 
-## Setting up Data Connector agents with `graphql-engine`
+# Build & Run
 
-In order to run one of the example agents, follow the steps in its respective README document.
+First, make a copy of the `.env.example` file to the `.env` file with the last updated values
 
-Once an agent is running, import the following metadata into `graphql-engine`:
-
-```json
-POST /v1/metadata
-
-{
-  "type": "replace_metadata",
-  "args": {
-    "metadata": {
-      "version": 3,
-      "backend_configs": {
-        "dataconnector": {
-          "couchbase": {
-            "uri": "http://agent:8100"
-          }
-        }
-      },
-      "sources": [
-        {
-          "name": "couchbase",
-          "kind": "couchbase",
-          "tables": [
-            {
-              "table": "Route",
-              "object_relationships": [
-                  {
-                  "name": "Airline",
-                  "using": {
-                    "manual_configuration": {
-                      "remote_table": ["Airline"],
-                      "column_mapping": {
-                        "airlineid": "id"
-                      }
-                    }
-                  }
-                }
-              ]
-            },
-            {
-              "table": "Airline",
-              "object_relationships": []
-            }
-          ],
-          "configuration":  {
-            "value":{
-                "db":"couchbase://localhost",
-                "username": "Administrator", 
-                "password": "Password", 
-                "bucket": "travel-sample"
-                
-            }
-          }
-        }
-      ]
-    }
-  }
-}
+```sh
+cp .env.example .env
 ```
 
-The `backend_configs.dataconnector` section lets you set the URIs for as many agents as you'd like. In this case, we've defined one called "couchbase". When you create a source, the `kind` of the source should be set to the name you gave the agent in the `backend_configs.dataconnector` section (in this case, "couchbase").
+## Automated setup using Docker Compose
 
-The `configuration` property under the source can contain an 'arbitrary' JSON object, and this JSON will be sent to the agent on every request via the `X-Hasura-DataConnector-Config` header. The example here is the configuration that the couchbase agent uses. The JSON object must conform to the schema specified by the agent from its `/capabilities` endpoint.
+Start an instance of Couchbase and Hasura Graphql Engine (HGE, with the
+experimental feature) to allow the DC agent and HGE to connect.
 
-The `name` property under the source will be sent to the agent on every request via the `X-Hasura-DataConnector-SourceName` header. This name uniquely identifies a source within an instance of HGE.
+``` sh
+docker-compose up --build -d
+```
 
-The `Route` and `Airlines` tables should now be available in the GraphiQL console. You should be able to issue queries via the web service. For example:
+The username and password to connect to the Couchbase Cluster can be found in the docker-compose.yml file.  The couchbase-server will automatically start up, create a cluster with the provided username and password, and load the `travel-sample` bucket.
 
+The table should now be available in the GraphiQL console. By default this is hosted at `localhost:8080`. You should be able to issue queries via the web service. For example:
 
 ```graphql
 query {
@@ -140,5 +42,118 @@ query {
       name
     }
   }
+}
+```
+
+## Manual setup
+
+# Using CLI
+
+Once an agent is running, edit the following metadata located in `@/opt/couchbase/init/metadata.json` and import it into `graphql-engine` using the the Docker terminal for couchbase-server using the command: 
+
+```sh
+  /opt/couchbase/bin/curl -v -d "@/opt/couchbase/init/metadata.json" http://hasura:8080/v1/metadata
+```
+
+The `backend_configs.dataconnector` section lets you set the URIs for as many agents as you'd like. In this case, we've defined one called "couchbase". When you create a source, the `kind` of the source should be set to the name you gave the agent in the `backend_configs.dataconnector` section (in this case, "couchbase").
+
+The `configuration` property under the source can contain an 'arbitrary' JSON object, and this JSON will be sent to the agent on every request via the `X-Hasura-DataConnector-Config` header. The example here is the configuration that the couchbase agent uses. The JSON object must conform to the schema specified by the agent from its `/capabilities` endpoint.
+
+The `name` property under the source will be sent to the agent on every request via the `X-Hasura-DataConnector-SourceName` header. This name uniquely identifies a source within an instance of HGE.
+
+The `kind` property under the source should be the name of the dataconnector defined under backend_configs, in this case `couchbase`
+
+The `tables` property defines the tables that are tracked with Hasura.
+
+The `configuration.value` property defines the Couchbase database. Fill in the values with the details of your Couchbase database. `scope` and `collection` will default to `_default` if left undefined.
+
+```json
+{
+  "type": "replace_metadata",
+  "version": 1,
+  "args": {
+    "allow_warnings": true,
+    "allow_inconsistent_metadata": true,
+    "metadata": {
+      "version": 3,
+      "backend_configs": {
+        "dataconnector": {
+          "couchbase": {
+            "uri": "http://couchbase-agent:8100" // URI of the couchbase agent
+          }
+        }
+      },
+      "sources": [
+        {
+          "name": "couchbase",
+          "kind": "couchbase",
+          "tables": [ 
+            {
+              "table": "Airline", // Collections to be tracked by HGE
+              "object_relationships": []
+            }
+          ],
+          "configuration": {
+            "value": {
+              "db": "db1", // URI of the couchbase database
+              "username": "Administrator",
+              "password": "Passw0rd$12",
+              "bucket": "travel-sample",
+              "scope": "inventory",
+              "collection": "airline"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+# Using UI
+You can also setup the agent through the Hasura UI hosted by default at `http://localhost:8080/console`
+
+# Data
+The Couchbase data connector should be already set up by default under the Data tab on the console. 
+
+To add more databases, click connect database on the Data tab and select `couchbase`. Fill out the configuration with your Couchbase database details and click `Connect Database`.
+
+By default, the tables in your newly added database will be untracked and you will not be able to start querying by default. To track tables, click View Database, and click track under the Table.
+
+# Metadata
+You can import and export the metadata through the Settings icon on the console. For example
+
+```
+{
+  "version": 3,
+  "backend_configs": {
+    "dataconnector": {
+      "couchbase": {
+        "uri": "http://couchbase-agent:8100" // URI of the couchbase agent
+      }
+    }
+  },
+  "sources": [
+    {
+      "name": "couchbase",
+      "kind": "couchbase",
+      "tables": [ 
+        {
+          "table": "Airline", // Collections to be tracked by HGE
+          "object_relationships": []
+        }
+      ],
+      "configuration": {
+        "value": {
+          "db": "db1", // URI of the couchbase database
+          "username": "Administrator",
+          "password": "Passw0rd$12",
+          "bucket": "travel-sample",
+          "scope": "inventory",
+          "collection": "airline"
+        }
+      }
+    }
+  ]
 }
 ```

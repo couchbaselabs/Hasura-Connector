@@ -27,7 +27,7 @@
             "value": {
               "db": "db1",
               "username": "Administrator",
-              "password": "Passw0rd$12",
+              "password": "Passw0rd$$12",
               "bucket": "travel-sample",
               "scope": "inventory",
               "collection": "airline"

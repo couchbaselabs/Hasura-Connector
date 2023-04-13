@@ -1,0 +1,15 @@
+name: test-action
+description: Test output of query of Hasura GraphQL against Couchbase Server
+inputs:
+  graphql-input:
+    description: 'Graphql input tested against hasura endpoint'
+    required: true
+  n1q1-input:
+    description: 'n1q1 input tested against couchbase server'
+    required: true
+outputs:
+  result:
+    description: 'Returns true if outputs are the same, else false'
+runs: 
+  using: 'node16'
+  main: 'index.js'

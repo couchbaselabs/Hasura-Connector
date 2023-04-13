@@ -19,4 +19,10 @@ jobs:
     - name: Build the Docker image
       run: docker-compose up --build -d
     - name: Test that the agent is running
-      run: curl -sSf http://localhost:8100/health > /dev/null && echo "Healthy"
+      run: curl -Is http://localhost:8100/health | head -n 1
+    - name: Test basic query
+      uses: ./.github/actions/test-action
+      with:
+        graphql-input: '{Airline(limit: 10){country}}'
+        n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = "airline" LIMIT 10'
+

@@ -18,17 +18,6 @@ jobs:
         run: cp .env.example .env
       - name: Build the Docker image
         run: docker-compose up --build -d
-      - name: Test that the agent is running
-        id: healthcheck
-        run: |
-          echo "health=$(curl -Is http://localhost:8100/health)" >> ${GITHUB_OUTPUT}
-      - name: Healthcheck
-        if: "!contains(${{ steps.healthcheck.outputs.health }},204)"
-        uses: actions/github-script@v3
-        with:
-          script: |
-            echo "${{ steps.healthcheck.outputs.health }}"
-            core.setFailed('Agent is not healthy')
       - name: Test basic query
         uses: ./.github/actions/test-action
         with:

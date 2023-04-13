@@ -24,15 +24,15 @@ jobs:
         id: healthcheck
         run: |
           echo "health=$(curl -Is http://localhost:8100/health | head -n 1)" >> ${GITHUB_OUTPUT}
-      - name: Healthcheck
+      - name: Log healthcheck failed
         if: contains(steps.healthcheck.outputs.health,'204') != true
         uses: actions/github-script@v3
         with:
           script: |
-            echo "${{ steps.healthcheck.outputs.health }}"
+            console.log("${{ steps.healthcheck.outputs.health }}")
             core.setFailed('Agent is not healthy')
       - name: Test basic query
         uses: ./.github/actions/test-action
         with:
           graphql-input: "{Airline(limit: 10){country}}"
-          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = "airline" LIMIT 10'
+          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'

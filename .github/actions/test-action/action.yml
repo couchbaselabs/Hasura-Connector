@@ -11,6 +11,7 @@ outputs:
   result:
     description: 'Returns true if outputs are the same, else false'
 runs: 
+  shell: bash
   using: "composite"
   steps:
     - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql"

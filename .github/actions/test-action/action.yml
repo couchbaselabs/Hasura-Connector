@@ -11,9 +11,10 @@ outputs:
   result:
     description: 'Returns true if outputs are the same, else false'
 runs: 
-  shell: bash
   using: "composite"
   steps:
     - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql"
+      shell: bash
     - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u Administrator:Passw0rd$12 http://localhost:8093/query/service"
+      shell: bash
      

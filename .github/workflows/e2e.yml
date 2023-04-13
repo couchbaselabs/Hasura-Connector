@@ -18,12 +18,12 @@ jobs:
         run: cp .env.example .env
       - name: Build the Docker image
         run: docker-compose up --build -d
-      - name: Wait for docker to finish building
+      - name: Wait for services to be live
         run: sleep 30
       - name: Test that the agent is running
         id: healthcheck
         run: |
-          echo "health=$(curl -Is http://localhost:8100/health)" >> ${GITHUB_OUTPUT}
+          echo "health=$(curl -Is http://localhost:8100/health | head -n 1)" >> ${GITHUB_OUTPUT}
       - name: Healthcheck
         if: "!contains(${{ steps.healthcheck.outputs.health }},204)"
         uses: actions/github-script@v3

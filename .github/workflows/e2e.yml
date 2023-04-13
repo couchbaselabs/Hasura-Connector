@@ -23,7 +23,7 @@ jobs:
         run: |
           echo "health=$(curl -Is http://localhost:8100/health | head -n 1)" >> ${GITHUB_STATE}
       - name: Healthcheck
-        if: steps.healthcheck.outputs.health != *"204"* 
+        if: ${{ !contains(steps.healthcheck.outputs.health,204) }}
         uses: actions/github-script@v3
         with:
           script: |

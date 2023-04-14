@@ -23,8 +23,15 @@ runs:
     - id: diff
       run: echo "result=$(diff output1 output2)" >> $GITHUB_OUTPUT
       shell: bash
+    - id: diff-result
+      run: |
+        if -s "${{steps.diff.outputs.result}}";then
+          echo "result_exists=true" >> $GITHUB_OUTPUT
+        else
+          echo "result_exists=false" >> $GITHUB_OUTPUT
+        fi
     - name: Check diff
-      if: steps.diff.outputs.result
+      if: steps.diff-result.outputs.result_exists
       uses: actions/github-script@v3
       with:
         script: |

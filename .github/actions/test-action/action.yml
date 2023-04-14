@@ -16,8 +16,14 @@ outputs:
 runs: 
   using: "composite"
   steps:
-    - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }}'" 
+    - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }} >> output1'" 
       shell: bash
-    - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c"
+    - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '.results >> output2"
       shell: bash
+    - name: Check diff
+      if: diff output1 output2 != ""
+      uses: actions/github-script@v3
+      with:
+        script: |
+            core.setFailed('Outputs are not equal')
      

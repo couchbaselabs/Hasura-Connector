@@ -23,9 +23,9 @@ runs:
     - id: diff
       run: echo "result=$(diff output1 output2)" >> $GITHUB_OUTPUT
     - name: Check diff
-      if: steps.diff.outputs.result != ""
+      if: steps.diff.outputs.result
       uses: actions/github-script@v3
       with:
         script: |
+            console.log(steps.diff.outputs.result)
             core.setFailed('Outputs are not equal')
-     

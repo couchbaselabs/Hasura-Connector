@@ -30,6 +30,7 @@ runs:
         else
           echo "result_exists=false" >> $GITHUB_OUTPUT
         fi
+      shell: bash
     - name: Check diff
       if: steps.diff-result.outputs.result_exists
       uses: actions/github-script@v3

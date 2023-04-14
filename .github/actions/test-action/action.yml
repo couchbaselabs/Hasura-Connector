@@ -24,20 +24,11 @@ runs:
     - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '${{ inputs.n1q1-object-path }}' >> output2"
       shell: bash
     - id: diff
-      run: echo "result=$(diff output1 output2)" >> $GITHUB_OUTPUT
-      shell: bash
-    - id: diff-result
       run: |
-        if [[ -s "${{steps.diff.outputs.result}}" ]];then
-          echo "result_exists=true" >> $GITHUB_OUTPUT
-        else
-          echo "result_exists=false" >> $GITHUB_OUTPUT
+        diff output1 output2 >> result
+        cat result
+        if [[ -s result ]];then
+          echo "Outputs are not equal"
+          exit 1
         fi
       shell: bash
-    - name: Check diff
-      if: steps.diff-result.outputs.result_exists
-      uses: actions/github-script@v3
-      with:
-        script: |
-            console.log(steps.diff.outputs.result)
-            core.setFailed('Outputs are not equal')

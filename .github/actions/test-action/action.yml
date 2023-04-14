@@ -20,8 +20,10 @@ runs:
       shell: bash
     - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '.results >> output2"
       shell: bash
+    - id: diff
+      run: echo "result=$(diff output1 output2)" >> $GITHUB_OUTPUT
     - name: Check diff
-      if: diff output1 output2 != ""
+      if: steps.diff.outputs.result != ""
       uses: actions/github-script@v3
       with:
         script: |

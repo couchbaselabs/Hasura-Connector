@@ -19,12 +19,12 @@ jobs:
       - name: Build the Docker image
         run: docker-compose up --build -d
       - name: Wait for services to be live
-        run: sleep 30
+        run: sleep 60
       - name: Test that the agent is running
         id: healthcheck
         run: |
           echo "health=$(curl -Is http://localhost:8100/health | head -n 1)" >> ${GITHUB_OUTPUT}
-      - name: Log healthcheck failed
+      - name: Log healthcheck if failed
         if: contains(steps.healthcheck.outputs.health,'204') != true
         uses: actions/github-script@v3
         with:
@@ -32,6 +32,11 @@ jobs:
             console.log("${{ steps.healthcheck.outputs.health }}")
             core.setFailed('Agent is not healthy')
       - name: Test basic query
+        uses: ./.github/actions/test-action
+        with:
+          graphql-input: "{Airline(limit: 10){country}}"
+          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'
+      - name: Test aggregate query
         uses: ./.github/actions/test-action
         with:
           graphql-input: "{Airline(limit: 10){country}}"

@@ -22,6 +22,7 @@ runs:
       shell: bash
     - id: diff
       run: echo "result=$(diff output1 output2)" >> $GITHUB_OUTPUT
+      shell: bash
     - name: Check diff
       if: steps.diff.outputs.result
       uses: actions/github-script@v3

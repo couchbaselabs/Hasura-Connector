@@ -19,11 +19,11 @@ outputs:
 runs: 
   using: "composite"
   steps:
-    - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }}' >> output1" 
+    - run: "curl -s -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }}' > output1" 
       shell: bash
     - run: "cat output1"
       shell: bash
-    - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '${{ inputs.n1q1-object-path }}' >> output2"
+    - run: "curl -s -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '${{ inputs.n1q1-object-path }}' > output2"
       shell: bash
     - run: "cat output2"
       shell: bash

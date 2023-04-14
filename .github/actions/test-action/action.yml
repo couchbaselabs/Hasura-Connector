@@ -28,7 +28,7 @@ runs:
       shell: bash
     - id: diff-result
       run: |
-        if -s "${{steps.diff.outputs.result}}";then
+        if [[ -s "${{steps.diff.outputs.result}}" ]];then
           echo "result_exists=true" >> $GITHUB_OUTPUT
         else
           echo "result_exists=false" >> $GITHUB_OUTPUT

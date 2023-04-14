@@ -19,7 +19,7 @@ jobs:
       - name: Build the Docker image
         run: docker-compose up --build -d
       - name: Wait for services to be live
-        run: sleep 60
+        run: sleep 30
       - name: Test that the agent is running
         id: healthcheck
         run: |
@@ -31,6 +31,10 @@ jobs:
           script: |
             console.log("${{ steps.healthcheck.outputs.health }}")
             core.setFailed('Agent is not healthy')
+      - name: Reload Metadata
+        run: |
+          curl -H 'Content-Type: application/json' -d '{"type":"reload_metadata","args":{"reload_remote_schemas": true,"reload_sources": false, "recreate_event_triggers": true}}' http://localhost:8080/v1/metadata
+          sleep 30
       - name: Test basic query
         uses: ./.github/actions/test-action
         with:

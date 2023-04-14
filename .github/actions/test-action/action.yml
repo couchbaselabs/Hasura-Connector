@@ -2,10 +2,13 @@ name: test-action
 description: Test output of query of Hasura GraphQL against Couchbase Server
 inputs:
   graphql-input:
-    description: 'Graphql input tested against hasura endpoint'
+    description: 'GraphQL input tested against hasura endpoint'
+    required: true
+  graphql-object-path:
+    description: 'Path of output from GraphQL that matches Couchbase Output'
     required: true
   n1q1-input:
-    description: 'n1q1 input tested against couchbase server'
+    description: 'N1Q1 input tested against couchbase server'
     required: true
 outputs:
   result:
@@ -13,8 +16,8 @@ outputs:
 runs: 
   using: "composite"
   steps:
-    - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql"
+    - run: "curl -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }}'" 
       shell: bash
-    - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service"
+    - run: "curl -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c"
       shell: bash
      

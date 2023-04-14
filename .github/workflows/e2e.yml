@@ -12,6 +12,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - name: Install jq tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install jq
       - name: Check Docker Version
         run: docker --version
       - name: Copy env file
@@ -34,14 +38,15 @@ jobs:
       - name: Reload Metadata
         run: |
           curl -H 'Content-Type: application/json' -d '{"type":"reload_metadata","args":{"reload_remote_schemas": true,"reload_sources": true, "recreate_event_triggers": true}}' http://localhost:8080/v1/metadata
-          sleep 30
       - name: Test basic query
         uses: ./.github/actions/test-action
         with:
           graphql-input: "{Airline(limit: 10){country}}"
+          graphql-object-path: '.data.Airline'
           n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'
       - name: Test aggregate query
         uses: ./.github/actions/test-action
         with:
           graphql-input: "{Airline(limit: 10){country}}"
+          graphql-object-path: '.data.Airline'
           n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'

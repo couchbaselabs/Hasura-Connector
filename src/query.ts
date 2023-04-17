@@ -436,7 +436,7 @@ function query(request: QueryRequest, config: Config, logger: FastifyBaseLogger)
 }
 
 
-function agregateQuery(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
+function aggregateQuery(request: QueryRequest, config: Config, logger: FastifyBaseLogger): string {
   const aggregate = aggregates_query(logger, config, request.table, 
     coerceUndefinedOrNullToEmptyRecord(request.query.aggregates), 
     coerceUndefinedToNull(request.query.where), 
@@ -445,7 +445,7 @@ function agregateQuery(request: QueryRequest, config: Config, logger: FastifyBas
     coerceUndefinedToNull(request.query.order_by),
     );
   logger.info(aggregate);
-  return tag('agregate_query', `${aggregate}`);
+  return tag('aggregate_query', `${aggregate}`);
 }
 
 /** Format the DB response into a /query response.
@@ -455,13 +455,13 @@ function agregateQuery(request: QueryRequest, config: Config, logger: FastifyBas
  * @param defaultObject object with struct that need project
  * @return QueryResponse
  */
-function output(result: QueryResult, defaultObject: any, agregate: QueryResult | null): QueryResponse {
+function output(result: QueryResult | null, defaultObject: any, aggregate: QueryResult | null): QueryResponse {
   const rows: any[] = [];
 
-  result.rows.forEach(element => {
+  result?.rows.forEach(element => {
     rows.push({ ... defaultObject, ... element });
   });
-  return { rows: rows, aggregates: agregate?.rows[0] };
+  return { rows: rows, aggregates: aggregate?.rows[0] };
 }
 
 const DEBUGGING_TAGS = envToBool('DEBUGGING_TAGS');
@@ -510,7 +510,7 @@ function defaultObject(request: QueryRequest) {
 export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: FastifyBaseLogger): Promise<QueryResponse | ErrorResponse> {
   logger.debug(queryRequest, "Query request");
   const q = query(queryRequest, config, logger);
-  const q_aggregate = agregateQuery(queryRequest, config, logger);
+  const q_aggregate = aggregateQuery(queryRequest, config, logger);
 
   const query_length_limit = envToNum('QUERY_LENGTH_LIMIT', Infinity);
   if (q.length > query_length_limit) {
@@ -528,9 +528,9 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
     try {
       const parameters = queryRequest.query.where ? toParameters(queryRequest.query.where, logger): {};
       const bucket = cluster.bucket(config.bucket);
-      const result = await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters});
-      const agregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
-      return output(result, defaultObject(queryRequest), agregate_result);
+      const result = q.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters}) : null;
+      const aggregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
+      return output(result, defaultObject(queryRequest), aggregate_result);
     }
     catch (ex) {
       logger.error(ex, `captured.exception`);
@@ -541,7 +541,7 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
         };
       }
       return {
-        message: 'Unknow error',
+        message: 'Unknown error',
         type: 'uncaught-error',
         details: ex
       };
@@ -566,11 +566,14 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
 export async function explain(cluster: Cluster, config: Config, logger: FastifyBaseLogger, queryRequest: QueryRequest): Promise<ExplainResponse | ErrorResponse> {
   try {
     const q = query(queryRequest, config, logger);
-    const { rows } = await cluster.query(`EXPLAIN ${q}`);
-    logger.debug(`EXPLAINS result ${rows}`);
+    const q_aggregate = aggregateQuery(queryRequest, config, logger);
+    const q_result = q.length > 0 ? await cluster.query(`EXPLAIN ${q}`) : null;
+    const q_aggregate_result = q_aggregate.length > 0 ? await cluster.query(`EXPLAIN ${q_aggregate}`): null;
+    logger.debug(`EXPLAINS result ${q_result?.rows}`);
+    logger.debug(`EXPLAINS result ${q_aggregate_result?.rows}`);
     return {
-      query: q,
-      lines: ["", JSON.stringify(rows, undefined, 4)]
+      query: `${q} ${q_aggregate}`,
+      lines: ["", JSON.stringify(q_result?.rows, undefined, 4), JSON.stringify(q_aggregate_result?.rows, undefined, 4)].filter(x => x != null)
     }
   }
   catch (ex) {

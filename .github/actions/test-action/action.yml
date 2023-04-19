@@ -1,0 +1,38 @@
+name: test-action
+description: Test output of query of Hasura GraphQL against Couchbase Server
+inputs:
+  graphql-input:
+    description: 'GraphQL input tested against hasura endpoint'
+    required: true
+  graphql-object-path:
+    description: 'Path of output from GraphQL that matches Couchbase Output'
+    required: true
+  n1q1-input:
+    description: 'N1Q1 input tested against couchbase server'
+    required: true
+  n1q1-object-path:
+    description: 'Path of output from n1q1 that matches Graphql Output'
+    required: true
+outputs:
+  result:
+    description: 'Returns true if outputs are the same, else false'
+runs: 
+  using: "composite"
+  steps:
+    - run: "curl -s -H 'Content-Type: application/json' -d '{\"query\": \"${{ inputs.graphql-input }}\"}' http://localhost:8080/v1/graphql | jq -c '${{ inputs.graphql-object-path }}' > output1" 
+      shell: bash
+    - run: "cat output1"
+      shell: bash
+    - run: "curl -s -H 'Content-Type: application/json' -d '{\"statement\": \"${{ inputs.n1q1-input }}\"}' -u 'Administrator:Passw0rd$12' http://localhost:8093/query/service | jq -c '${{ inputs.n1q1-object-path }}' > output2"
+      shell: bash
+    - run: "cat output2"
+      shell: bash
+    - id: diff
+      run: |
+        diff output1 output2 >> result
+        cat result
+        if [[ -s result ]];then
+          echo "Outputs are not equal"
+          exit 1
+        fi
+      shell: bash

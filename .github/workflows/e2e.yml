@@ -1,0 +1,54 @@
+name: Docker Image CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  Run-E2E-Tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install jq tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install jq
+      - name: Check Docker Version
+        run: docker --version
+      - name: Copy env file
+        run: cp .env.example .env
+      - name: Build the Docker image
+        run: docker-compose up --build -d
+      - name: Wait for services to be live
+        run: sleep 60
+      - name: Test that the agent is running
+        id: healthcheck
+        run: |
+          echo "health=$(curl -Is http://localhost:8100/health | head -n 1)" >> ${GITHUB_OUTPUT}
+      - name: Log healthcheck if failed
+        if: contains(steps.healthcheck.outputs.health,'204') != true
+        uses: actions/github-script@v3
+        with:
+          script: |
+            console.log("${{ steps.healthcheck.outputs.health }}")
+            core.setFailed('Agent is not healthy')
+      - name: Reload Metadata
+        run: |
+          curl -H 'Content-Type: application/json' -d '{"type":"reload_metadata","args":{"reload_remote_schemas": true,"reload_sources": true, "recreate_event_triggers": true}}' http://localhost:8080/v1/metadata
+      - name: Test basic query
+        uses: ./.github/actions/test-action
+        with:
+          graphql-input: "{Airline(limit: 10){country}}"
+          graphql-object-path: '.data.Airline'
+          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'
+          n1q1-object-path: '.results'
+      - name: Test aggregate query
+        uses: ./.github/actions/test-action
+        with:
+          graphql-input: "{Airline_aggregate{aggregate{count(distinct: false, column: country)}}}"
+          graphql-object-path: '.data.Airline_aggregate.aggregate.count'
+          n1q1-input: 'SELECT COUNT(`country`) AS aggregate_count FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\"'
+          n1q1-object-path: '.results[0].aggregate_count'

@@ -17,7 +17,29 @@
         {
           "name": "couchbase",
           "kind": "couchbase",
-          "tables": [],
+          "tables": [
+            {
+              "table": [
+                "_default",
+                "_default",
+                "hotel"
+              ]
+            },
+            {
+              "table": [
+                "inventory",
+                "airport",
+                "airport"
+              ]
+            },
+            {
+              "table": [
+                "inventory",
+                "landmark",
+                "landmark"
+              ]
+            }
+          ],
           "configuration": {
             "value": {
               "db": "db1",

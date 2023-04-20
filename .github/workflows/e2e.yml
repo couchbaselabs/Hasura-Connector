@@ -41,14 +41,21 @@ jobs:
       - name: Test basic query
         uses: ./.github/actions/test-action
         with:
-          graphql-input: "{Airline(limit: 10){country}}"
-          graphql-object-path: '.data.Airline'
+          graphql-input: "{inventory_airport_airport(limit: 10){country}}"
+          graphql-object-path: '.data.inventory_airport_airport'
           n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'
+          n1q1-object-path: '.results'
+      - name: Test query from a different scope and collection
+        uses: ./.github/actions/test-action
+        with:
+          graphql-input: "{inventory_landmark_landmark(limit: 10){activity}}"
+          graphql-object-path: '.data.inventory_landmark_landmark'
+          n1q1-input: 'SELECT activity AS activity FROM `travel-sample`.`inventory`.`landmark` AS landmark WHERE type = "landmark" LIMIT 10'
           n1q1-object-path: '.results'
       - name: Test aggregate query
         uses: ./.github/actions/test-action
         with:
-          graphql-input: "{Airline_aggregate{aggregate{count(distinct: false, column: country)}}}"
-          graphql-object-path: '.data.Airline_aggregate.aggregate.count'
+          graphql-input: "{inventory_airport_airport_aggregate{aggregate{count(distinct: false, column: country)}}}"
+          graphql-object-path: '.data.inventory_airport_airport_aggregate.aggregate.count'
           n1q1-input: 'SELECT COUNT(`country`) AS aggregate_count FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\"'
           n1q1-object-path: '.results[0].aggregate_count'

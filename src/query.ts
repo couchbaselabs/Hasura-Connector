@@ -56,7 +56,7 @@ function escapeIdentifier(identifier: string): string {
  * @returns tableName
  */
 function validateTableName(tableName: TableName): TableName {
-  if (tableName.length <= 2 && tableName.length > 0) return tableName;
+  if (tableName.length <= 3 && tableName.length > 0) return tableName;
   else throw new Error(`${tableName.join(".")} is not a valid table`);
 }
 
@@ -374,14 +374,30 @@ function n1ql_query(
   wOrder: OrderBy | null,
   logger: FastifyBaseLogger
 ): string {
-  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
-  const scopeName = tableName.at(0) || '_default';
-  const collectionName = tableName.at(1) || '_default';
+  const tableAlias = validateTableName(tableName)[2];
+  const scopeName = tableName.at(0) || "_default";
+  const collectionName = tableName.at(1) || "_default";
   const from = `\`${config.bucket}\`.\`${scopeName}\`.\`${collectionName}\``;
-  const n1qlQuery = isEmptyObject(fields) ? '' : (() => {
-    const innerFromClauses = `${let_relationss(fields, tableName, tableAlias, ts, config, logger)} ${where(wWhere, tableAlias, logger)} ${order(wOrder, tableAlias)} ${limit(wLimit)} ${offset(wOffset)}`;
-    return `SELECT ${select_fields(fields, tableName, ts)} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
-  })()
+  const n1qlQuery = isEmptyObject(fields)
+    ? ""
+    : (() => {
+        const innerFromClauses = `${let_relationss(
+          fields,
+          tableName,
+          tableAlias,
+          ts,
+          config,
+          logger
+        )} ${where(wWhere, tableAlias, logger)} ${order(
+          wOrder,
+          tableAlias
+        )} ${limit(wLimit)} ${offset(wOffset)}`;
+        return `SELECT ${select_fields(
+          fields,
+          tableName,
+          ts
+        )} FROM ${from} AS ${tableAlias} ${innerFromClauses}`;
+      })();
   logger.info(`Converter expression to query ${n1qlQuery}`);
   return tag("n1ql_query", `${n1qlQuery}`);
 }
@@ -542,8 +558,10 @@ function aggregates_query(
 ): string {
   if (isEmptyObject(aggregates)) return "";
 
-  const tableAlias = validateTableName(tableName).map((str: string) => str.toLowerCase()).join("_");
-  const from = `\`${config.bucket}\`.\`${config.scope}\`.\`${config.collection}\``;
+  const tableAlias = validateTableName(tableName)[2];
+  const scopeName = tableName.at(0) || "_default";
+  const collectionName = tableName.at(1) || "_default";
+  const from = `\`${config.bucket}\`.\`${scopeName}\`.\`${collectionName}\``;
 
   const whereClause = where(wWhere, tableAlias, logger);
 
@@ -681,10 +699,17 @@ function defaultObject(request: QueryRequest) {
  * @param logger instance of fastify logger
  *
  */
-export async function queryData(cluster: Cluster, queryRequest: QueryRequest, config: Config, logger: FastifyBaseLogger): Promise<QueryResponse | ErrorResponse> {
+export async function queryData(
+  cluster: Cluster,
+  queryRequest: QueryRequest,
+  config: Config,
+  logger: FastifyBaseLogger
+): Promise<QueryResponse | ErrorResponse> {
   logger.debug(queryRequest, "Query request");
   const q = query(queryRequest, config, logger);
   const q_aggregate = aggregateQuery(queryRequest, config, logger);
+  const tableName = queryRequest.table;
+  const scopeName = tableName.at(0);
 
   const query_length_limit = envToNum("QUERY_LENGTH_LIMIT", Infinity);
   if (q.length > query_length_limit) {
@@ -705,11 +730,20 @@ export async function queryData(cluster: Cluster, queryRequest: QueryRequest, co
         ? toParameters(queryRequest.query.where, logger)
         : {};
       const bucket = cluster.bucket(config.bucket);
-      const result = q.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q, {parameters: parameters}) : null;
-      const aggregate_result = q_aggregate.length > 0 ? await bucket.scope(config.scope ?? 'default').query(q_aggregate) : null;
-      return output(result, defaultObject(queryRequest), aggregate_result);
-    }
-    catch (ex) {
+      const result =
+        q.length > 0
+          ? await bucket
+              .scope(scopeName ?? "_default")
+              .query(q, { parameters: parameters })
+          : undefined;
+      const aggregate_result =
+        q_aggregate.length > 0
+          ? await bucket
+              .scope(scopeName ?? "_default")
+              .query(q_aggregate, { parameters: parameters })
+          : undefined;
+      return output(defaultObject(queryRequest), result, aggregate_result);
+    } catch (ex) {
       logger.error(ex, `captured.exception`);
       if (ex instanceof IndexFailureError) {
         return {

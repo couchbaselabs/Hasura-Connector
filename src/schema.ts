@@ -6,7 +6,6 @@ import {
 } from "@hasura/dc-api-types";
 import { Cluster } from "couchbase";
 import { Config } from "./config";
-import { tableNameEquals } from "./utils";
 
 const inferQuery = (
   bucket: string,
@@ -24,17 +23,9 @@ export async function getSchema(
   const tables: TableInfo[] = [];
   let scopes = await cluster.bucket(config.bucket).collections().getAllScopes();
 
-  console.log(scopes);
   for (const scope of scopes) {
     for (const collection of scope.collections) {
       let result;
-      const tname = [scope.name, collection.name];
-
-      for (const table of tables) {
-        if (tableNameEquals(table.name)(tname)) {
-          continue;
-        }
-      }
 
       try {
         result = await cluster.query(
@@ -49,6 +40,11 @@ export async function getSchema(
 
       for (const collectionMetadata of schemaInfo) {
         let properties = collectionMetadata.properties;
+        const type = properties?.type?.samples?.at(0);
+        if (!type) {
+          continue;
+        }
+
         let columns: ColumnInfo[] = [
           {
             name: "id",
@@ -77,6 +73,8 @@ export async function getSchema(
           });
         }
 
+        const tname = [scope.name, collection.name, type];
+        console.log(tname)
         let tinfo = config.documents?.filter(
           (doc) =>
             doc.name.toLocaleLowerCase() == tname.join(".").toLocaleLowerCase()

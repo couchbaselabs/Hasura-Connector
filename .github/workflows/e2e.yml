@@ -43,7 +43,7 @@ jobs:
         with:
           graphql-input: "{inventory_airport_airport(limit: 10){country}}"
           graphql-object-path: '.data.inventory_airport_airport'
-          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\" LIMIT 10'
+          n1q1-input: 'SELECT country AS country FROM `travel-sample`.`inventory`.`airport` AS airport WHERE type = \"airport\" LIMIT 10'
           n1q1-object-path: '.results'
       - name: Test query from a different scope and collection
         uses: ./.github/actions/test-action
@@ -59,3 +59,10 @@ jobs:
           graphql-object-path: '.data.inventory_airport_airport_aggregate.aggregate.count'
           n1q1-input: 'SELECT COUNT(`country`) AS aggregate_count FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\"'
           n1q1-object-path: '.results[0].aggregate_count'
+      - name: Test where query
+        uses: ./.github/actions/test-action
+        with:
+          graphql-input: '{inventory_airport_airport(where:{country:{_eq:\"United States\"}},limit:10){airportname}'
+          graphql-object-path: '.data.inventory_airport_airport'
+          n1q1-input: 'SELECT airportname AS airportname FROM `travel-sample`.`inventory`.`airport` AS airport WHERE type = \"airport\" AND airport.`country` = \"United States\" LIMIT 10'
+          n1q1-object-path: '.results'

@@ -29,19 +29,19 @@ docker-compose up --build -d
 
 The username and password to connect to the Couchbase Cluster can be found in the docker-compose.yml file. The couchbase-server will automatically start up, create a cluster with the provided username and password, and load the `travel-sample` bucket.
 
-The table should now be available in the GraphiQL console. By default this is hosted at `localhost:8080`. You should be able to issue queries via the web service. For example:
+The table should now be available in the GraphiQL console. By default this is hosted at `localhost:8080`. You should be able to issue queries on the API tab. For example, try querying for 10 airport names in the United States:
 
 ```graphql
 query {
-  Route {
-    id
-    Airline {
-      id
-      name
-    }
+  inventory_airport_airport(where: {country: {_eq: "United States"}}, limit: 10) {
+    airportname
   }
 }
 ```
+
+> Note: If you are getting errors with inconsistent metadata, try refreshing the Metadata in the Settings page (icon on the top right of the page).
+
+By default we have tracked three tables for you to experiment with. To add more tables, go to the Data tab and click the `View Database` button next to the couchbase database to see all the tables in the bucket. You can try tracking the `inventory_airline_airline` table. The data should now be available in the API tab.
 
 ## Manual setup
 

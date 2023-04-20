@@ -57,7 +57,7 @@ jobs:
         with:
           graphql-input: "{inventory_airport_airport_aggregate{aggregate{count(distinct: false, column: country)}}}"
           graphql-object-path: '.data.inventory_airport_airport_aggregate.aggregate.count'
-          n1q1-input: 'SELECT COUNT(`country`) AS aggregate_count FROM `travel-sample`.`inventory`.`airline` AS airline WHERE type = \"airline\"'
+          n1q1-input: 'SELECT COUNT(`country`) AS aggregate_count FROM `travel-sample`.`inventory`.`airport` AS airport WHERE type = \"airport\"'
           n1q1-object-path: '.results[0].aggregate_count'
       - name: Test where query
         uses: ./.github/actions/test-action

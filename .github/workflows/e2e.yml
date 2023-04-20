@@ -62,7 +62,7 @@ jobs:
       - name: Test where query
         uses: ./.github/actions/test-action
         with:
-          graphql-input: '{inventory_airport_airport(where:{country:{_eq:\"United States\"}},limit:10){airportname}'
+          graphql-input: '{inventory_airport_airport(where:{country:{_eq:\"United States\"}},limit:10){airportname}}'
           graphql-object-path: '.data.inventory_airport_airport'
           n1q1-input: 'SELECT airportname AS airportname FROM `travel-sample`.`inventory`.`airport` AS airport WHERE type = \"airport\" AND airport.`country` = \"United States\" LIMIT 10'
           n1q1-object-path: '.results'

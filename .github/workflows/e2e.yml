@@ -50,7 +50,7 @@ jobs:
         with:
           graphql-input: "{inventory_landmark_landmark(limit: 10){activity}}"
           graphql-object-path: '.data.inventory_landmark_landmark'
-          n1q1-input: 'SELECT activity AS activity FROM `travel-sample`.`inventory`.`landmark` AS landmark WHERE type = "landmark" LIMIT 10'
+          n1q1-input: 'SELECT activity AS activity FROM `travel-sample`.`inventory`.`landmark` AS landmark WHERE type = \"landmark\" LIMIT 10'
           n1q1-object-path: '.results'
       - name: Test aggregate query
         uses: ./.github/actions/test-action

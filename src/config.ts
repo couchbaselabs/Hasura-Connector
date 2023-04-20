@@ -16,8 +16,6 @@ export type Config = {
   db: string,
   username: string,
   password: string,
-  scope: string | '_default',
-  collection: string  | '_default',
   documents:  Document[] | null, 
   healtCheckStrategy: 'ping' | 'diagnostic' | null,
 }
@@ -56,8 +54,6 @@ export const tryGetConfig = (request: FastifyRequest): Config | null => {
     db: config.db,
     username: config.username,
     password: config.password,
-    scope: config.scope ?? '_default',
-    collection: config.collection ?? '_default',
     healtCheckStrategy: config.healtCheckStrategy,
     documents: config.documents,
   }
@@ -84,17 +80,6 @@ export const configSchema: ConfigSchemaResponse = {
       bucket: {
         description: "The Couchbase bucket.",
         type: "string"
-      },
-      scope: {
-        description: "Scope of collections",
-        type: "string",
-        default: "_default",
-      },
-      collection: {
-        description: "Collection to make available in the schema and for querying",
-        type: "string",
-        default: "_default",
-        nullable: true
       },
       documents: {
         description: "A list of documents and the relations allowed",

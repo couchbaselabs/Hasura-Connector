@@ -19,8 +19,25 @@
           "kind": "couchbase",
           "tables": [
             {
-              "table": "Airline",
-              "object_relationships": []
+              "table": [
+                "_default",
+                "_default",
+                "hotel"
+              ]
+            },
+            {
+              "table": [
+                "inventory",
+                "airport",
+                "airport"
+              ]
+            },
+            {
+              "table": [
+                "inventory",
+                "landmark",
+                "landmark"
+              ]
             }
           ],
           "configuration": {
@@ -28,9 +45,7 @@
               "db": "db1",
               "username": "Administrator",
               "password": "Passw0rd$12",
-              "bucket": "travel-sample",
-              "scope": "inventory",
-              "collection": "airline"
+              "bucket": "travel-sample"
             }
           }
         }
